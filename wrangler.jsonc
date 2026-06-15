@@ -1,0 +1,12 @@
+{
+  // Static-assets-only Worker: serve the Vite build output in ./dist as a
+  // plain static site. There is no `main` (no server code), so Wrangler deploys
+  // the assets directly and does NOT invoke the Vite framework integration
+  // (which would require Vite >= 6). This is what makes `wrangler deploy`
+  // succeed for this static game on Vite 5.
+  "name": "oneshotgamesv3",
+  "compatibility_date": "2025-06-01",
+  "assets": {
+    "directory": "./dist"
+  }
+}
