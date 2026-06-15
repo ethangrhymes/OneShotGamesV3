@@ -7,6 +7,7 @@
 import type { Renderer } from "./Renderer";
 import type { RunState } from "./Progression";
 import type { SaveData } from "./types";
+import type { DifficultyMode } from "./Balance";
 
 const C = {
   ink: "#f3e9d2",
@@ -439,7 +440,7 @@ export class UI {
   // =====================================================================
   // Title
   // =====================================================================
-  drawTitle(save: SaveData, hard: boolean) {
+  drawTitle(save: SaveData, difficulty: DifficultyMode) {
     this.buttons = [];
     const ctx = this.ctx;
     const s = this.uiScale;
@@ -469,7 +470,9 @@ export class UI {
       this.button({ id: "newrun", x: bx, y: by, w: bw, h: bh * 0.8, label: "New Run", small: true, accent: C.bad });
       by += bh * 0.8 + 10 * s;
     }
-    this.button({ id: "hard", x: bx, y: by, w: bw / 2 - 5 * s, h: bh * 0.8, label: hard ? "Mode: Hard" : "Mode: Normal", small: true, accent: hard ? C.bad : C.border });
+    const diffLabel = difficulty === "easy" ? "Mode: Easy" : difficulty === "hard" ? "Mode: Hard" : "Mode: Normal";
+    const diffAccent = difficulty === "easy" ? C.good : difficulty === "hard" ? C.bad : C.border;
+    this.button({ id: "difficulty", x: bx, y: by, w: bw / 2 - 5 * s, h: bh * 0.8, label: diffLabel, small: true, accent: diffAccent });
     this.button({ id: "help", x: bx + bw / 2 + 5 * s, y: by, w: bw / 2 - 5 * s, h: bh * 0.8, label: "How to Play", small: true });
 
     // stats footer
@@ -521,6 +524,7 @@ export class UI {
       "  embers wait where you died — reclaim them.",
       "  Beyond the Keep lies the Rootward Road, and the",
       "  sealed gate to Act II. (F2 toggles a dev overlay.)",
+      "  Easy mode = a forgiving QA/practice scale.",
     ];
     let ty = y + 70 * s;
     for (const ln of lines) {

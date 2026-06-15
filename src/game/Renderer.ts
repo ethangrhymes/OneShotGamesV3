@@ -115,18 +115,23 @@ export class Renderer {
 
   resize() {
     this.dpr = Math.min(window.devicePixelRatio || 1, 2.5);
-    const w = window.innerWidth;
-    const h = window.innerHeight;
+    // Use the visual viewport (the actually-visible area) when available so the
+    // canvas fills the screen correctly as the iOS URL bar shows/hides, without
+    // chasing a pinch-zoom (zoom is prevented globally in main.ts).
+    const vp = window.visualViewport;
+    const w = Math.round(vp ? vp.width : window.innerWidth);
+    const h = Math.round(vp ? vp.height : window.innerHeight);
     this.viewW = w;
     this.viewH = h;
     this.canvas.style.width = w + "px";
     this.canvas.style.height = h + "px";
     this.canvas.width = Math.floor(w * this.dpr);
     this.canvas.height = Math.floor(h * this.dpr);
-    // choose a zoom that shows a readable number of tiles on the short axis
+    // Zoom: show a readable tile count. Base it on the SHORT axis but clamp the
+    // tile-count so the URL bar hiding/showing can't noticeably re-zoom the view.
     const short = Math.min(w, h);
     let s = short / (9.5 * TILE);
-    s = Math.max(2.4, Math.min(5, s));
+    s = Math.max(2.2, Math.min(4.5, s));
     this.scale = Math.round(s * 2) / 2;
   }
 

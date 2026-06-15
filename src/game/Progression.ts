@@ -7,7 +7,7 @@
  * enemies reset because rooms re-instantiate their spawns on each entry; bosses
  * stay dead because their spawns are gated behind defeat flags.
  */
-import { Balance } from "./Balance";
+import { Balance, type DifficultyMode } from "./Balance";
 import type { GameFlag, UpgradeId } from "./types";
 
 export interface RunStats {
@@ -38,7 +38,7 @@ export interface RunSnapshot {
   lostX: number;
   lostY: number;
   stats: Omit<RunStats, "roomsVisited" | "startTime"> & { roomsVisited: string[] };
-  difficulty: "normal" | "hard";
+  difficulty: DifficultyMode;
 }
 
 export class RunState {
@@ -59,7 +59,7 @@ export class RunState {
   lostX = 0;
   lostY = 0;
 
-  difficulty: "normal" | "hard" = "normal";
+  difficulty: DifficultyMode = "normal";
 
   stats: RunStats = {
     startTime: 0,
@@ -73,9 +73,22 @@ export class RunState {
     bossDefeated: false,
   };
 
-  constructor(difficulty: "normal" | "hard" = "normal") {
+  constructor(difficulty: DifficultyMode = "normal") {
     this.difficulty = difficulty;
     this.hp = this.maxHp;
+  }
+
+  private get diff() {
+    return Balance.difficulty[this.difficulty];
+  }
+  get iframeMult(): number {
+    return this.diff.iframeMult;
+  }
+  get knockbackMult(): number {
+    return this.diff.knockbackMult;
+  }
+  get aggroMult(): number {
+    return this.diff.aggroMult;
   }
 
   // ---- derived stats ----
@@ -84,7 +97,11 @@ export class RunState {
     return (this.upgrades.has("heartVessel") ? 1 : 0) + (this.upgrades.has("emberHeart") ? 1 : 0);
   }
   get maxHearts(): number {
-    return Balance.player.maxHeartsStart + this.heartVesselCount * Balance.upgrades.heartVesselBonus;
+    return (
+      Balance.player.maxHeartsStart +
+      this.diff.heartsBonus +
+      this.heartVesselCount * Balance.upgrades.heartVesselBonus
+    );
   }
   get maxHp(): number {
     return this.maxHearts * Balance.player.hpPerHeart;

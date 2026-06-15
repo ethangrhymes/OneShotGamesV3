@@ -170,9 +170,9 @@ export class Player {
   hurt(damage: number, fromX: number, fromY: number): { hit: boolean; dead: boolean } {
     if (this.invulnerable) return { hit: false, dead: false };
     const dead = this.run.damage(damage);
-    this.invulnT = Balance.player.hurtIFrames;
+    this.invulnT = Balance.player.hurtIFrames * this.run.iframeMult;
     this.hurtFlashT = Balance.combat.hitFlashTime;
-    this.applyKnockback(fromX, fromY, Balance.player.knockbackTaken);
+    this.applyKnockback(fromX, fromY, Balance.player.knockbackTaken * this.run.knockbackMult);
     return { hit: true, dead };
   }
 
@@ -216,6 +216,8 @@ export class Enemy {
   lungeVY = 0;
   wobble: number;
   isAdd = false;
+  /** wake-up delay (sec) so a room's enemies don't all swarm you the instant you enter. */
+  wakeT: number;
   // charger state
   chargeState: "idle" | "windup" | "charge" | "recover" = "idle";
   chargeT = 0;
@@ -225,14 +227,21 @@ export class Enemy {
   /** set while telegraphing a heavy attack — the renderer flashes a warning. */
   telegraphing = false;
 
-  constructor(def: EnemyDef, x: number, y: number, hpScale = 1, dmgScale = 1, speedScale = 1) {
-    this.def = { ...def, hp: Math.round(def.hp * hpScale), damage: Math.max(1, Math.round(def.damage * dmgScale)), speed: def.speed * speedScale };
+  constructor(def: EnemyDef, x: number, y: number, hpScale = 1, dmgScale = 1, speedScale = 1, aggroScale = 1) {
+    this.def = {
+      ...def,
+      hp: Math.max(1, Math.round(def.hp * hpScale)),
+      damage: Math.max(1, Math.round(def.damage * dmgScale)),
+      speed: def.speed * speedScale,
+      aggroRange: def.aggroRange ? def.aggroRange * aggroScale : def.aggroRange,
+    };
     this.x = x;
     this.y = y;
     this.hp = this.def.hp;
     this.radius = def.radius;
     this.fireT = (def.fireInterval ?? 2) * (0.4 + ((x * 13 + y * 7) % 100) / 200);
-    this.wobble = ((x * 7 + y * 5) % 100) / 100 * Math.PI * 2;
+    this.wobble = (((x * 7 + y * 5) % 100) / 100) * Math.PI * 2;
+    this.wakeT = 0.35 + (((x * 7 + y * 11) % 100) / 100) * 0.6; // 0.35–0.95s, staggered
     // random patrol direction
     const a = ((x * 31 + y * 17) % 360) * (Math.PI / 180);
     this.patrolX = Math.cos(a);
@@ -246,13 +255,16 @@ export class Enemy {
   update(dt: number, player: Player, room: Room, hooks: CombatHooks) {
     this.hitFlashT = Math.max(0, this.hitFlashT - dt);
     this.wobble += dt * 6;
+    if (this.wakeT > 0) this.wakeT -= dt;
 
     const pp = { x: player.x, y: player.y };
     const dx = pp.x - this.x;
     const dy = pp.y - this.y;
     const dist = Math.hypot(dx, dy) || 1;
     const aggro = this.def.aggroRange ?? 0;
-    const active = aggro === 0 || dist <= aggro;
+    // not "awake" yet => don't aggro (lets the player get their bearings on entry)
+    const awake = this.wakeT <= 0;
+    const active = awake && (aggro === 0 || dist <= aggro);
 
     let vx = 0;
     let vy = 0;
@@ -261,8 +273,10 @@ export class Enemy {
     switch (this.def.behavior) {
       case "chaser":
         if (active) {
-          vx = (dx / dist) * sp;
-          vy = (dy / dist) * sp;
+          // weave slightly instead of laser-tracking the player
+          const j = Math.sin(this.wobble * 0.6) * 0.22;
+          vx = (dx / dist) * sp + (-dy / dist) * sp * j;
+          vy = (dy / dist) * sp + (dx / dist) * sp * j;
         }
         break;
       case "swarm":

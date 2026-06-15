@@ -26,7 +26,7 @@ export const Balance = {
     dashIFrames: 0.2, // invulnerable while rolling
     // damage response
     hurtIFrames: 0.9,
-    knockbackTaken: 150,
+    knockbackTaken: 120,
   },
 
   upgrades: {
@@ -52,9 +52,39 @@ export const Balance = {
   },
 
   // ---- difficulty multipliers ----
+  // enemySpeed/aggroMult curb the "heat-seeking swarm"; heartsBonus + iframeMult +
+  // knockbackMult are the survivability levers. Easy is the QA/practice scale.
   difficulty: {
-    normal: { enemyHp: 1.0, enemyDamage: 1.0, enemySpeed: 1.0, bossHp: 1.0 },
-    hard: { enemyHp: 1.35, enemyDamage: 1.5, enemySpeed: 1.12, bossHp: 1.4 },
+    easy: {
+      enemyHp: 0.6,
+      enemyDamage: 1.0,
+      enemySpeed: 0.6,
+      bossHp: 0.55,
+      heartsBonus: 4, // 9 hearts
+      iframeMult: 1.6,
+      aggroMult: 0.6,
+      knockbackMult: 0.45,
+    },
+    normal: {
+      enemyHp: 0.9,
+      enemyDamage: 1.0,
+      enemySpeed: 0.82,
+      bossHp: 0.85,
+      heartsBonus: 1, // 6 hearts
+      iframeMult: 1.15,
+      aggroMult: 0.82,
+      knockbackMult: 0.7,
+    },
+    hard: {
+      enemyHp: 1.3,
+      enemyDamage: 1.5,
+      enemySpeed: 1.02,
+      bossHp: 1.3,
+      heartsBonus: 0,
+      iframeMult: 1.0,
+      aggroMult: 1.0,
+      knockbackMult: 1.0,
+    },
   },
 
   // ---- timing / loop ----
@@ -74,4 +104,4 @@ export const Balance = {
   },
 } as const;
 
-export type DifficultyMode = "normal" | "hard";
+export type DifficultyMode = "easy" | "normal" | "hard";

@@ -35,7 +35,7 @@ import {
 import { restAtCheckpoint } from "./Checkpoints";
 import { discoverLore } from "./Lore";
 import { runValidation } from "./Validator";
-import { Balance, TILE } from "./Balance";
+import { Balance, TILE, type DifficultyMode } from "./Balance";
 import act1 from "../content/acts/act1";
 import type { ChestContents } from "./types";
 
@@ -84,10 +84,11 @@ export class Game implements CombatHooks, CombatCallbacks {
 
   time = 0;
   fade = 0;
-  hard = false;
+  difficulty: DifficultyMode = "normal";
   debug = false;
   private currentRegionId = "";
   private pendingVictory = false;
+  private transitionLockT = 0; // brief lockout so knockback can't bounce you back through a door
 
   private near: InteractionTarget = null;
   private modal: ModalContent | null = null;
@@ -112,18 +113,34 @@ export class Game implements CombatHooks, CombatCallbacks {
     this.input = new Input(canvas, container);
     this.input.onUnlock = () => void this.audio.unlock();
 
-    window.addEventListener("resize", () => {
-      this.renderer.resize();
-      this.ui.computeScale();
-    });
+    // rAF-debounced resize, listening to every viewport-change source mobile
+    // browsers use (window resize, orientation flip, and visualViewport changes
+    // when the iOS URL bar shows/hides).
+    let resizePending = false;
+    const onResize = () => {
+      if (resizePending) return;
+      resizePending = true;
+      requestAnimationFrame(() => {
+        resizePending = false;
+        this.renderer.resize();
+        this.ui.computeScale();
+      });
+    };
+    window.addEventListener("resize", onResize);
+    window.addEventListener("orientationchange", onResize);
+    window.visualViewport?.addEventListener("resize", onResize);
+    window.visualViewport?.addEventListener("scroll", onResize);
     document.addEventListener("visibilitychange", () => {
       if (document.hidden && this.state === "playing") this.state = "pause";
     });
-    // F2 toggles the traversal/collision debug overlay (dev aid, harmless in prod)
+    // F2 toggles the traversal/collision debug overlay (dev aid, harmless in prod);
+    // M toggles mute (the controls screen advertises it).
     window.addEventListener("keydown", (e) => {
       if (e.key === "F2") {
         e.preventDefault();
         this.debug = !this.debug;
+      } else if (e.key === "m" || e.key === "M") {
+        this.toggleMute();
       }
     });
     this.ui.computeScale();
@@ -132,7 +149,7 @@ export class Game implements CombatHooks, CombatCallbacks {
   async start() {
     this.ui.muted = this.save.data.muted;
     this.audio.setMuted(this.save.data.muted);
-    this.hard = this.save.data.difficultyMode === "hard";
+    this.difficulty = this.save.data.difficultyMode;
 
     // render loading frames while assets stream in
     this.loop(performance.now());
@@ -153,13 +170,12 @@ export class Game implements CombatHooks, CombatCallbacks {
   // Run lifecycle
   // =====================================================================
   private difficultyScales() {
-    const d = this.hard ? Balance.difficulty.hard : Balance.difficulty.normal;
-    return d;
+    return Balance.difficulty[this.difficulty];
   }
 
   newRun() {
     this.save.clearRun();
-    this.run = new RunState(this.hard ? "hard" : "normal");
+    this.run = new RunState(this.difficulty);
     this.run.stats.startTime = performance.now();
     this.currentRegionId = "";
     this.save.data.discoveredRegions = ["sunken_keep"];
@@ -244,7 +260,7 @@ export class Game implements CombatHooks, CombatCallbacks {
       const c = Room.tileCenter(s.tx, s.ty);
       if (s.kind === "enemy") {
         const edef = this.world.act.enemies[s.ref!];
-        if (edef) this.enemies.push(new Enemy(edef, c.x, c.y, scales.enemyHp, scales.enemyDamage, scales.enemySpeed));
+        if (edef) this.enemies.push(new Enemy(edef, c.x, c.y, scales.enemyHp, scales.enemyDamage, scales.enemySpeed, scales.aggroMult));
       } else if (s.kind === "miniboss" || s.kind === "boss") {
         const bdef = this.world.act.bosses[s.ref!];
         if (bdef) this.boss = new Boss(bdef, c.x, c.y, scales.bossHp);
@@ -288,6 +304,12 @@ export class Game implements CombatHooks, CombatCallbacks {
       this.player.y = pos.y;
     }
     this.player.run = this.run;
+    // Entry safety: brief invulnerability + a transition lockout so you can never
+    // be swarmed or knocked straight back out the door the instant you arrive.
+    this.player.invulnT = Math.max(this.player.invulnT, 0.7);
+    this.player.kbX = 0;
+    this.player.kbY = 0;
+    this.transitionLockT = 0.45;
 
     this.renderer.resetCamera();
     this.updateMusic();
@@ -354,7 +376,8 @@ export class Game implements CombatHooks, CombatCallbacks {
   spawnAdd(defId: string, x: number, y: number): void {
     const edef = this.world.act.enemies[defId];
     if (edef && this.enemies.length < 30) {
-      const e = new Enemy(edef, x, y);
+      const s = this.difficultyScales();
+      const e = new Enemy(edef, x, y, s.enemyHp, s.enemyDamage, s.enemySpeed, s.aggroMult);
       e.isAdd = true;
       this.enemies.push(e);
     }
@@ -542,9 +565,10 @@ export class Game implements CombatHooks, CombatCallbacks {
           this.save.hasRun() ? this.continueRun() : this.newRun();
         } else if (id === "newrun") {
           this.save.hasRun() ? this.newRun() : this.openControls("title");
-        } else if (id === "hard") {
-          this.hard = !this.hard;
-          this.save.data.difficultyMode = this.hard ? "hard" : "normal";
+        } else if (id === "difficulty") {
+          const order: DifficultyMode[] = ["easy", "normal", "hard"];
+          this.difficulty = order[(order.indexOf(this.difficulty) + 1) % order.length];
+          this.save.data.difficultyMode = this.difficulty;
           this.save.flush();
         } else if (id === "help") {
           this.openControls("title");
@@ -585,14 +609,14 @@ export class Game implements CombatHooks, CombatCallbacks {
           this.updateMusic();
           this.state = "playing";
         } else if (id === "replay") {
-          this.hard = this.save.data.difficultyMode === "hard";
+          this.difficulty = this.save.data.difficultyMode;
           this.newRun();
         } else if (id === "title") this.toTitle();
         else if (id === "credits") this.openCredits("victory");
         break;
       case "regionComplete":
         if (id === "replay") {
-          this.hard = this.save.data.difficultyMode === "hard";
+          this.difficulty = this.save.data.difficultyMode;
           this.newRun();
         } else if (id === "title") this.toTitle();
         else if (id === "credits") this.openCredits("regionComplete");
@@ -631,6 +655,7 @@ export class Game implements CombatHooks, CombatCallbacks {
       this.victory();
       return;
     }
+    if (this.transitionLockT > 0) this.transitionLockT -= dt;
     this.run.stats.elapsedMs += dt * 1000;
 
     // HUD pause/mute taps
@@ -913,7 +938,7 @@ export class Game implements CombatHooks, CombatCallbacks {
       const edef = this.world.act.enemies[s.ref!];
       if (edef) {
         const c = Room.tileCenter(s.tx, s.ty);
-        this.enemies.push(new Enemy(edef, c.x, c.y, scales.enemyHp, scales.enemyDamage, scales.enemySpeed));
+        this.enemies.push(new Enemy(edef, c.x, c.y, scales.enemyHp, scales.enemyDamage, scales.enemySpeed, scales.aggroMult));
       }
     }
   }
@@ -979,6 +1004,7 @@ export class Game implements CombatHooks, CombatCallbacks {
   }
 
   private checkDoorTransition() {
+    if (this.transitionLockT > 0) return;
     const room = this.world.current;
     const tx = Math.floor(this.player.x / TILE);
     const ty = Math.floor(this.player.y / TILE);
@@ -1156,7 +1182,7 @@ export class Game implements CombatHooks, CombatCallbacks {
     }
     if (this.state === "title") {
       this.drawWorldBackdrop();
-      this.ui.drawTitle(this.save.data, this.hard);
+      this.ui.drawTitle(this.save.data, this.difficulty);
       return;
     }
 

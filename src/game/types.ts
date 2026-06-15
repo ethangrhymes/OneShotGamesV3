@@ -317,7 +317,7 @@ export interface SaveData {
   permanentUpgrades: UpgradeId[];
   loreDiscovered: string[];
   checkpointId: string | null;
-  difficultyMode: "normal" | "hard";
+  difficultyMode: "easy" | "normal" | "hard";
   // ---- Round 2 expansion hooks (older saves auto-initialize these) ----
   unlockedRegions: string[];
   discoveredRegions: string[];
