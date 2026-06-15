@@ -1,16 +1,45 @@
-# Emberfall Keep — Act I
+# Emberfall Keep
 
-A complete, mobile-friendly **top-down dungeon crawler** in the spirit of Zelda, with
-light Soulslike structure (Emberlight checkpoints, a recoverable death drop, a boss
-gate sealed behind relics, and a shortcut you open from deep inside). Built with
-TypeScript + Vite + HTML5 Canvas, rendered with Kenney's **Tiny Dungeon** art.
+A complete, mobile-friendly **top-down Zelda-like / light Soulslike** built with
+TypeScript + Vite + HTML5 Canvas. Two cursed, interconnected regions:
 
-> The light that kept the Keep has gone hollow. Descend the Sunken Keep, gather the
-> Warden Seals, break the curse — and glimpse the wider world that waits beyond.
+1. **Act I — The Sunken Keep** (Kenney *Tiny Dungeon*): a 16-room dungeon with
+   Emberlight checkpoints, a recoverable death drop, a boss gate sealed behind
+   Warden Seals, a miniboss, and the final boss — The Hollow Warden.
+2. **The Rootward Road** (Kenney *Tiny Town*): a 7-area cursed overground bell-road
+   beyond the broken gate — a swallowed hamlet, a blackroot grove, an elite Barrow
+   Champion, a broken span, and the sealed causeway to **Act II**.
 
-This is **Act I** of a deliberately expandable world: the engine is data-driven, so
-future acts/regions/bosses are added as content files, not engine rewrites
-(see [`CONTENT_GUIDE.md`](CONTENT_GUIDE.md)).
+> The light that kept the Keep has gone hollow. Break the curse, then walk the road
+> beyond — the Keep was only the first opened wound in a much larger cursed world.
+
+The engine is fully data-driven, so future acts/regions/bosses are added as content
+files, not engine rewrites (see [`CONTENT_GUIDE.md`](CONTENT_GUIDE.md)).
+
+## Round 2 expansion (what's new)
+
+- **A whole new playable region** — The Rootward Road — reached by walking through
+  the summit world-gate after the Warden falls. Act I still ends cleanly with its
+  own victory screen; "Walk the Rootward Road →" continues onward.
+- **Creative multi-pack asset use** — a second cohesive Kenney pack (*Tiny Town*,
+  same 16×16 scale) gives the outer world a distinct identity (grass, dying autumn
+  trees, cobble roads, houses, a stone causeway), justified in the lore as the
+  Keep's curse "taking root" along an old bell-road.
+- **A traversal/winnability validator** (dev-time) that proves every room is
+  reachable and the critical path never depends on a consumable key — plus an **F2
+  debug overlay** (collision, doors + lock labels, spawns, enemy behaviors).
+- **Darker, adaptive audio** — a scene-based music engine (safe / explore / combat /
+  boss / region) with low drones, sparse unresolved bells, and a combat-tension
+  layer that fades in during fights.
+- **More combat variety** — new enemy behaviors (stationary **turret** caster,
+  long-windup **charger**, on-death **splitter**) and an **elite champion**, plus
+  boss intro banners, boss-arena door locks, and clearer heavy-attack telegraphs.
+- **More world & story** — region banners, region-colored minimap, 7 new lore
+  fragments, optional **Bell Tokens**, a new **Ember Heart** upgrade, and a shortcut
+  winch on the span.
+- **Save migration** — old Act I saves keep working (new fields auto-initialize); a
+  saved checkpoint in a room that no longer exists falls back to the nearest valid
+  start instead of loading into the void.
 
 ---
 
@@ -32,6 +61,7 @@ future acts/regions/bosses are added as content files, not engine rewrites
 | Interact (chests, levers, lore, doors, rest) | `E` / `F` |
 | Pause | `Esc` / `P` |
 | Mute | `M` |
+| Debug overlay (dev) | `F2` |
 | Confirm menus | `Enter` / `Space` / tap |
 
 **Mobile / touch**
@@ -110,14 +140,22 @@ The selected assets are committed into the repo, so the deployed Cloudflare Page
 build **does not** need the parent folder. The parent bundle is only used during
 local asset-prep.
 
-### Art direction
+### Art direction (two cohesive 16×16 packs, used as distinct regions)
 
-One cohesive style: **Kenney "Tiny Dungeon"** (16×16 top-down, CC0). It ships as
-individual per-tile PNGs, so there's no spritesheet slicing. Chosen sprites
-include the green-hooded hero, six monsters (rat, ooze, spider, moth, wraith,
-cultist), an armored sentinel, the Gaoler brute (miniboss), the horned Hollow
-Warden (final boss), chests, potions, doors, gates, braziers, scrolls, and the
-Warden Seal ring.
+Both packs are Kenney, CC0, 16×16, and ship as individual per-tile PNGs (no
+spritesheet slicing) — so they share the player's scale and never break collision
+or combat readability:
+
+- **Tiny Dungeon** → Act I (The Sunken Keep): the green-hooded hero, monsters
+  (rat, ooze, spider, moth, wraith, cultist, sentinel), the Gaoler brute, the
+  horned Hollow Warden, chests, potions, doors, gates, braziers, scrolls, seal ring.
+- **Tiny Town** → The Rootward Road (`tt_*` keys): grass, cobble roads, dying
+  autumn trees, houses, fences, a stone causeway arch, signs, a well, a market
+  stall, and the gold Bell-Token relic.
+
+Mixing is deliberate, not random: the visual shift is the curse spreading from the
+Keep onto the old bell-road. The art-prep script keeps both packs documented in the
+manifest with their source pack + tile index.
 
 ### Fallback behavior
 
@@ -127,19 +165,24 @@ The game **never breaks on a missing asset**:
   **always drawn procedurally** in a matching chunky-pixel style.
 - Every sprite category also has a procedural fallback shape — if a PNG fails to
   load, the renderer draws a clean readable stand-in instead of crashing.
-- Audio uses a **Web Audio synth engine** for all sound effects and an ambient
+- Audio uses an adaptive **Web Audio synth engine** for all sound effects and the
   music bed, which works on every browser (including older iOS Safari that can't
-  decode `.ogg`). Decoded Kenney clips are preferred when the browser supports
-  them; otherwise the synth fallback is seamless. Mute persists in `localStorage`.
+  decode `.ogg`). Decoded Kenney clips (low-passed/slowed to stay dark) are preferred
+  when the browser supports them; otherwise the synth fallback is seamless. Music is
+  scene-based — **safe / explore / combat / boss / region** — with low drones, sparse
+  bells, and a combat-tension layer that fades in during fights. Audio only starts
+  after a user gesture; mute persists in `localStorage`.
 
 If asset discovery fails entirely, the game still runs fully with procedural art
 and synth audio.
 
 ---
 
-## What's in Act I
+## What's in the game
 
-- 16 connected rooms in one region ("The Sunken Keep"), with a minimap.
+**Act I — The Sunken Keep**
+
+- 16 connected rooms in one region, with a region-colored minimap.
 - A safe start, 3 **Emberlight** checkpoints, 2 optional locked doors (Iron Keys),
   a one-way-style **shortcut** you raise via a lever deep in the Keep.
 - 6 enemy types + behaviors (chaser, swarm, patroller, shooter, tank), a
@@ -154,6 +197,16 @@ and synth audio.
   victory with stats**, and a credits/asset-notice screen.
 - A **Hard Mode** toggle on the title screen.
 
+**The Rootward Road** (Round 2)
+
+- 7 outdoor areas (Cinder Gate, Dead Road, Blackroot Grove, Swallowed Hamlet,
+  Outer Barrow, Broken Span, Sealed Causeway) with their own checkpoints, lore,
+  and minimap group.
+- New enemy behaviors (turret / charger / splitter) and an optional **elite**
+  (the Barrow Champion) guarding an **Ember Heart** upgrade.
+- Optional **Bell Tokens**, a shortcut winch back to the gate, and a sealed Act II
+  causeway gate that ends Round 2 with a "world has many wounds" teaser screen.
+
 ---
 
 ## Persistence
@@ -162,9 +215,12 @@ Everything is `localStorage`, no accounts/servers/cookies:
 
 - Settings (mute, difficulty) and lifetime stats (best time, most embers, wins,
   deaths).
-- An in-progress **run snapshot** (resources, opened chests, world flags,
-  discovered lore, current checkpoint) so closing the tab resumes from your last
-  Emberlight via **Continue Descent**.
+- An in-progress **run snapshot** (resources incl. Bell Tokens, opened chests,
+  world flags, discovered lore, current checkpoint) so closing the tab resumes from
+  your last rest via **Continue Descent**.
+- Round 2 hooks (`unlockedRegions`, `discoveredRegions`, `completedMiniRegion`,
+  `optionalEliteDefeated`, …) auto-initialize on older saves. If a saved checkpoint
+  room no longer exists, the game falls back to the nearest valid start.
 
 ---
 
@@ -180,9 +236,10 @@ src/
   styles.css
   game/                # engine: Game, Renderer, Input, AssetManager, AudioManager,
                        #         Save, World, Dungeon, Entities, Combat, Progression,
-                       #         Checkpoints, Lore, UI, Balance, types
-  content/             # DATA-DRIVEN content (add new acts here)
+                       #         Checkpoints, Lore, UI, Balance, Validator, types
+  content/             # DATA-DRIVEN content (add new acts/regions here)
     acts/act1.ts
+    regions/rootwardRoad.ts
     enemies/enemyDefinitions.ts
     bosses/bossDefinitions.ts
     items/itemDefinitions.ts
@@ -196,7 +253,8 @@ enemies, bosses, items, lore, and asset mappings.
 
 ## Credits
 
-- Art & audio: **Kenney** (kenney.nl) — *Tiny Dungeon* + RPG/Impact/Interface/Music
-  packs, all **CC0**. Crediting is voluntary and gladly given.
+- Art & audio: **Kenney** (kenney.nl) — *Tiny Dungeon*, *Tiny Town*, and
+  RPG/Impact/Interface/Music packs, all **CC0**. Crediting is voluntary and gladly
+  given.
 - Engine, design, content, and the procedurally-drawn HUD icons were built for
   this project in TypeScript + Vite + Canvas.

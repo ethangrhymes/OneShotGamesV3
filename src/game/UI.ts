@@ -46,6 +46,8 @@ export interface HudInfo {
   rooms: { id: string; gx: number; gy: number }[];
   currentRoomId: string;
   visited: Set<string>;
+  regionName: string;
+  accent: string;
 }
 
 export interface ModalContent {
@@ -55,11 +57,20 @@ export interface ModalContent {
   accent?: string;
 }
 
+interface Banner {
+  title: string;
+  subtitle?: string;
+  accent: string;
+  t: number;
+  life: number;
+}
+
 export class UI {
   r: Renderer;
   buttons: UiButton[] = [];
   toasts: Toast[] = [];
   uiScale = 1;
+  private bannerState: Banner | null = null;
 
   constructor(r: Renderer) {
     this.r = r;
@@ -100,6 +111,45 @@ export class UI {
   updateToasts(dt: number) {
     for (const t of this.toasts) t.t += dt;
     this.toasts = this.toasts.filter((t) => t.t < t.life);
+    if (this.bannerState) {
+      this.bannerState.t += dt;
+      if (this.bannerState.t >= this.bannerState.life) this.bannerState = null;
+    }
+  }
+
+  /** A large transient announcement (region entered, area discovered, boss intro). */
+  banner(title: string, subtitle?: string, accent = C.ember, life = 3.2) {
+    this.bannerState = { title, subtitle, accent, t: 0, life };
+  }
+
+  drawBanner() {
+    const b = this.bannerState;
+    if (!b) return;
+    const ctx = this.ctx;
+    const s = this.uiScale;
+    const fadeIn = Math.min(1, b.t / 0.4);
+    const fadeOut = Math.min(1, (b.life - b.t) / 0.6);
+    const a = Math.max(0, Math.min(fadeIn, fadeOut));
+    const y = this.H * 0.3;
+    ctx.save();
+    ctx.globalAlpha = a;
+    // thin rule lines above/below for a "title card" feel
+    ctx.strokeStyle = b.accent;
+    ctx.lineWidth = 2;
+    const halfW = Math.min(this.W * 0.4, 240 * s);
+    ctx.beginPath();
+    ctx.moveTo(this.W / 2 - halfW, y + 14 * s);
+    ctx.lineTo(this.W / 2 + halfW, y + 14 * s);
+    ctx.stroke();
+    ctx.shadowColor = "rgba(0,0,0,0.8)";
+    ctx.shadowBlur = 8 * s;
+    this.serif(30);
+    this.text(b.title, this.W / 2, y, b.accent, "center");
+    if (b.subtitle) {
+      this.font(14, "normal", "Georgia, serif");
+      this.text(b.subtitle, this.W / 2, y + 34 * s, C.ink, "center");
+    }
+    ctx.restore();
   }
 
   // ---- primitive drawing ----
@@ -313,14 +363,17 @@ export class UI {
     const gap = 2 * s;
     const gridW = (maxX - minX + 1) * (cw + gap);
     const gridH = (maxY - minY + 1) * (cw + gap);
+    const labelH = 14 * s;
     const x0 = right - gridW;
-    const y0 = top;
-    this.panel(x0 - 6 * s, y0 - 6 * s, gridW + 12 * s, gridH + 12 * s, true);
+    const y0 = top + labelH;
+    this.panel(x0 - 6 * s, top - 6 * s, gridW + 12 * s, gridH + 12 * s + labelH, true);
+    this.font(10);
+    this.text(info.regionName, right - gridW / 2, top + 6 * s, info.accent, "center");
     for (const r of visible) {
       const x = x0 + (r.gx - minX) * (cw + gap);
       const y = y0 + (r.gy - minY) * (cw + gap);
       const cur = r.id === info.currentRoomId;
-      ctx.fillStyle = cur ? C.ember : "rgba(243,233,210,0.4)";
+      ctx.fillStyle = cur ? info.accent : "rgba(243,233,210,0.4)";
       ctx.fillRect(x, y, cw, cw);
     }
   }
@@ -429,7 +482,7 @@ export class UI {
     this.text(stats.join("    "), this.W / 2, this.H - 56 * s, C.dim, "center");
 
     this.font(11, "normal");
-    this.text("Art & audio: Kenney “Tiny Dungeon” + Kenney SFX (CC0)", this.W / 2, this.H - 34 * s, C.dim, "center");
+    this.text("Art: Kenney Tiny Dungeon + Tiny Town · Audio: Kenney + synth (CC0)", this.W / 2, this.H - 34 * s, C.dim, "center");
     this.text("WASD/Arrows move · Space attack · Shift roll · E interact", this.W / 2, this.H - 18 * s, C.dim, "center");
   }
 
@@ -460,12 +513,14 @@ export class UI {
       "  ATK — swing your blade      DASH — roll/dodge",
       "  USE — appears near chests, levers, lore & doors",
       "",
-      "THE KEEP",
-      "  Rest at Emberlights to save & heal.",
+      "THE WORLD",
+      "  Rest at Emberlights & Lanterns to save & heal.",
       "  Roll through attacks — you're briefly invulnerable.",
       "  Two Warden Seals open the sealed door to the boss.",
-      "  Fall and you respawn at the last Emberlight; your",
-      "  dropped embers wait where you died — reclaim them.",
+      "  Fall and you respawn at the last rest; your dropped",
+      "  embers wait where you died — reclaim them.",
+      "  Beyond the Keep lies the Rootward Road, and the",
+      "  sealed gate to Act II. (F2 toggles a dev overlay.)",
     ];
     let ty = y + 70 * s;
     for (const ln of lines) {
@@ -562,44 +617,94 @@ export class UI {
     this.text("Act I Complete", this.W / 2, this.H * 0.18, C.ember, "center");
     ctx.restore();
     this.font(14, "normal", "Georgia, serif");
-    const tease = "The curse over Emberfall lifts like smoke. Beyond the broken gate, other keeps wait — other names set down. The way onward is sealed… for now.";
+    const tease = "The curse over Emberfall lifts like smoke. The summit gate grinds open — beyond it an old bell-road waits, already taking root. The journey is only beginning.";
     let ty = this.H * 0.18 + 30 * s;
     for (const ln of this.wrap(tease, Math.min(this.W * 0.8, 520 * s))) {
       this.text(ln, this.W / 2, ty, C.dim, "center");
       ty += 20 * s;
     }
 
-    // stats panel
-    const w = Math.min(this.W * 0.8, 420 * s);
-    const x = this.W / 2 - w / 2;
-    const py = ty + 12 * s;
     const rows: [string, string, boolean][] = [
       ["Time", formatTime(run.stats.elapsedMs), newBest.time],
       ["Rooms cleared", `${run.stats.roomsVisited.size}`, false],
       ["Enemies defeated", `${run.stats.enemiesDefeated}`, false],
       ["Embers collected", `${run.stats.embersCollected}`, newBest.embers],
-      ["Lore found", `${run.stats.loreFound} / 8`, false],
+      ["Lore found", `${run.stats.loreFound} / 15`, false],
       ["Deaths", `${run.stats.deaths}`, false],
-      ["Damage taken", `${run.stats.damageTaken}`, false],
     ];
-    const rh = 24 * s;
-    this.panel(x, py, w, rows.length * rh + 16 * s);
+    const w = Math.min(this.W * 0.8, 420 * s);
+    const x = this.W / 2 - w / 2;
+    const py = ty + 10 * s;
+    const rh = 23 * s;
+    this.statRows(x, py, w, rh, rows);
+
+    const bw = Math.min(this.W * 0.74, 300 * s);
+    const bh = 46 * s;
+    const bx = this.W / 2 - bw / 2;
+    let by = py + rows.length * rh + 30 * s;
+    this.button({ id: "onward", x: bx, y: by, w: bw, h: bh, label: "Walk the Rootward Road  →", primary: true });
+    by += bh + 9 * s;
+    this.button({ id: "replay", x: bx, y: by, w: bw / 3 - 6 * s, h: bh * 0.78, label: "Replay", small: true });
+    this.button({ id: "credits", x: bx + bw / 3, y: by, w: bw / 3 - 6 * s, h: bh * 0.78, label: "Credits", small: true });
+    this.button({ id: "title", x: bx + (bw / 3) * 2 + 6 * s, y: by, w: bw / 3 - 6 * s, h: bh * 0.78, label: "Title", small: true });
+  }
+
+  private statRows(x: number, py: number, w: number, rh: number, rows: [string, string, boolean][]) {
+    this.panel(x, py, w, rows.length * rh + 16 * this.uiScale);
     this.font(15);
-    let ry = py + 24 * s;
+    let ry = py + 24 * this.uiScale;
     for (const [k, v, best] of rows) {
-      this.text(k, x + 18 * s, ry, C.dim, "left");
-      this.text(v + (best ? "  ★" : ""), x + w - 18 * s, ry, best ? C.gold : C.ink, "right");
+      this.text(k, x + 18 * this.uiScale, ry, C.dim, "left");
+      this.text(v + (best ? "  ★" : ""), x + w - 18 * this.uiScale, ry, best ? C.gold : C.ink, "right");
       ry += rh;
     }
+  }
 
-    const bw = Math.min(this.W * 0.7, 280 * s);
+  // =====================================================================
+  // Region complete (Round 2 endpoint — Act II teaser)
+  // =====================================================================
+  drawRegionComplete(run: RunState, save: SaveData) {
+    this.buttons = [];
+    const ctx = this.ctx;
+    const s = this.uiScale;
+    this.dimScreen(0.62);
+    ctx.save();
+    ctx.shadowColor = "rgba(180,140,255,0.6)";
+    ctx.shadowBlur = 22 * s;
+    this.serif(34);
+    this.text("The Rootward Road", this.W / 2, this.H * 0.16, C.arcane, "center");
+    ctx.restore();
+    this.serif(20);
+    this.text("Act II — Sealed", this.W / 2, this.H * 0.16 + 30 * s, C.ember, "center");
+    this.font(14, "normal", "Georgia, serif");
+    const tease = "You reach the sealed causeway. Beyond it: a drowned verge, an old king's road, a buried sun — all waiting. The Keep was one wound. The world has many.";
+    let ty = this.H * 0.16 + 56 * s;
+    for (const ln of this.wrap(tease, Math.min(this.W * 0.82, 520 * s))) {
+      this.text(ln, this.W / 2, ty, C.dim, "center");
+      ty += 20 * s;
+    }
+    const rows: [string, string, boolean][] = [
+      ["Total time", formatTime(run.stats.elapsedMs), false],
+      ["Rooms explored", `${run.stats.roomsVisited.size}`, false],
+      ["Enemies defeated", `${run.stats.enemiesDefeated}`, false],
+      ["Bell Tokens", `${run.bellTokens} / 3`, run.bellTokens >= 3],
+      ["Elite felled", run.getFlag("optionalEliteDefeated") ? "yes" : "no", run.getFlag("optionalEliteDefeated")],
+      ["Lore found", `${run.stats.loreFound} / 15`, run.stats.loreFound >= 15],
+    ];
+    const w = Math.min(this.W * 0.8, 420 * s);
+    const x = this.W / 2 - w / 2;
+    const py = ty + 10 * s;
+    const rh = 23 * s;
+    this.statRows(x, py, w, rh, rows);
+
+    const bw = Math.min(this.W * 0.74, 300 * s);
     const bh = 44 * s;
     const bx = this.W / 2 - bw / 2;
-    let by = py + rows.length * rh + 36 * s;
-    this.button({ id: "replay", x: bx, y: by, w: bw, h: bh, label: "Descend Again", primary: true });
-    by += bh + 10 * s;
-    this.button({ id: "credits", x: bx, y: by, w: bw / 2 - 5 * s, h: bh * 0.8, label: "Credits", small: true });
-    this.button({ id: "title", x: bx + bw / 2 + 5 * s, y: by, w: bw / 2 - 5 * s, h: bh * 0.8, label: "Title", small: true });
+    let by = py + rows.length * rh + 30 * s;
+    this.button({ id: "replay", x: bx, y: by, w: bw, h: bh, label: "Begin a New Journey", primary: true });
+    by += bh + 9 * s;
+    this.button({ id: "credits", x: bx, y: by, w: bw / 2 - 5 * s, h: bh * 0.78, label: "Credits", small: true });
+    this.button({ id: "title", x: bx + bw / 2 + 5 * s, y: by, w: bw / 2 - 5 * s, h: bh * 0.78, label: "Title", small: true });
   }
 
   // =====================================================================

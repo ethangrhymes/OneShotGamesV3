@@ -27,6 +27,7 @@ export interface RunSnapshot {
   embers: number;
   keys: number;
   seals: number;
+  bellTokens?: number;
   upgrades: UpgradeId[];
   takenUids: string[];
   flags: Record<string, boolean>;
@@ -45,6 +46,7 @@ export class RunState {
   embers = 0;
   keys = 0;
   seals = 0;
+  bellTokens = 0; // optional Round 2 collectible (Bell Tokens of the Rootward Road)
   upgrades = new Set<UpgradeId>();
   takenUids = new Set<string>();
   flags: Record<string, boolean> = {};
@@ -78,7 +80,8 @@ export class RunState {
 
   // ---- derived stats ----
   get heartVesselCount(): number {
-    return this.upgrades.has("heartVessel") ? 1 : 0;
+    // each max-heart upgrade adds one (Heart Vessel from Act I, Ember Heart from Round 2)
+    return (this.upgrades.has("heartVessel") ? 1 : 0) + (this.upgrades.has("emberHeart") ? 1 : 0);
   }
   get maxHearts(): number {
     return Balance.player.maxHeartsStart + this.heartVesselCount * Balance.upgrades.heartVesselBonus;
@@ -121,11 +124,14 @@ export class RunState {
   addSeal(n = 1) {
     this.seals += n;
   }
+  addToken(n = 1) {
+    this.bellTokens += n;
+  }
   addUpgrade(id: UpgradeId) {
-    const hadHeart = this.upgrades.has("heartVessel");
+    const had = this.upgrades.has(id);
     this.upgrades.add(id);
-    // gaining a heart vessel also tops you up by the new heart
-    if (id === "heartVessel" && !hadHeart) this.hp = Math.min(this.maxHp, this.hp + Balance.player.hpPerHeart);
+    // gaining a max-heart upgrade also tops you up by the new heart
+    if ((id === "heartVessel" || id === "emberHeart") && !had) this.hp = Math.min(this.maxHp, this.hp + Balance.player.hpPerHeart);
   }
   heal(pips: number) {
     this.hp = Math.min(this.maxHp, this.hp + pips);
@@ -159,6 +165,7 @@ export class RunState {
       embers: this.embers,
       keys: this.keys,
       seals: this.seals,
+      bellTokens: this.bellTokens,
       upgrades: [...this.upgrades],
       takenUids: [...this.takenUids],
       flags: { ...this.flags },
@@ -187,6 +194,7 @@ export class RunState {
     r.embers = s.embers;
     r.keys = s.keys;
     r.seals = s.seals;
+    r.bellTokens = s.bellTokens ?? 0;
     r.upgrades = new Set(s.upgrades);
     r.takenUids = new Set(s.takenUids);
     r.flags = { ...s.flags };

@@ -25,13 +25,15 @@ export type Sfx =
   | "victory"
   | "gameover";
 
-type MusicName = "explore" | "boss";
+/** A music "biome" picks the base bed; combat/safe modulate intensity on top. */
+type Biome = "explore" | "boss" | "region";
 
 export class AudioManager {
   private ctx: AudioContext | null = null;
   private master: GainNode | null = null;
   private musicGain: GainNode | null = null;
   private sfxGain: GainNode | null = null;
+  private combatGain: GainNode | null = null;
   private buffers = new Map<string, AudioBuffer>();
   private sources: Record<string, string> = {};
   private muted = false;
@@ -39,8 +41,13 @@ export class AudioManager {
 
   // music state
   private musicNodes: AudioNode[] = [];
-  private currentMusic: MusicName | null = null;
+  private currentMusic: Biome | null = null;
   private droneTimer: number | null = null;
+  // adaptive combat layer
+  private combatTimer: number | null = null;
+  private combatLevel = 0; // smoothed 0..1
+  private combatTarget = 0;
+  private safe = false;
 
   setSources(sources: Record<string, string>): void {
     this.sources = sources;
@@ -81,6 +88,12 @@ export class AudioManager {
       this.sfxGain.gain.value = 0.55;
       this.sfxGain.connect(this.master);
 
+      // adaptive combat tension layer (a dark pulse that fades in during fights)
+      this.combatGain = this.ctx.createGain();
+      this.combatGain.gain.value = 0.0001;
+      this.combatGain.connect(this.master);
+      this.startCombatLayer();
+
       if (this.ctx.state === "suspended") await this.ctx.resume();
       this.unlocked = true;
       // Decode any available Kenney clips in the background.
@@ -103,7 +116,8 @@ export class AudioManager {
           // If music is requested and now available, swap from synth drone.
           if (
             (name === "music_explore" && this.currentMusic === "explore") ||
-            (name === "music_boss" && this.currentMusic === "boss")
+            (name === "music_boss" && this.currentMusic === "boss") ||
+            (name === "music_region2" && this.currentMusic === "region")
           ) {
             this.startMusic(this.currentMusic, true);
           }
@@ -289,7 +303,25 @@ export class AudioManager {
   }
 
   // ---- music ------------------------------------------------------------
-  startMusic(name: MusicName, force = false): void {
+  /**
+   * The single adaptive entry point. Game calls this each time context changes:
+   *   biome  — base bed: explore (dark dungeon), boss (deeper/faster), region (cold/wide)
+   *   safe   — at a checkpoint/safe room: calm, no combat layer
+   *   combat — 0..1 tension; fades in a dark percussion/noise layer
+   */
+  setMusicScene(biome: Biome, safe: boolean, combat: number): void {
+    this.safe = safe;
+    this.combatTarget = safe ? 0 : Math.max(0, Math.min(1, combat));
+    if (this.combatGain && this.ctx) {
+      const t = this.now();
+      const tgt = 0.0001 + this.combatTarget * 0.22;
+      this.combatGain.gain.cancelScheduledValues(t);
+      this.combatGain.gain.setTargetAtTime(tgt, t, 0.6);
+    }
+    if (this.currentMusic !== biome) this.startMusic(biome);
+  }
+
+  startMusic(name: Biome, force = false): void {
     if (!this.ctx || !this.musicGain) {
       this.currentMusic = name;
       return;
@@ -298,67 +330,119 @@ export class AudioManager {
     this.currentMusic = name;
     this.stopMusicNodes();
 
-    const bufName = name === "explore" ? "music_explore" : "music_boss";
+    const bufName = name === "explore" ? "music_explore" : name === "boss" ? "music_boss" : "music_region2";
     const buf = this.buffers.get(bufName);
-    const target = name === "boss" ? 0.32 : 0.26;
+    const target = name === "boss" ? 0.3 : name === "region" ? 0.24 : 0.24;
 
     if (buf) {
       const src = this.ctx.createBufferSource();
       src.buffer = buf;
       src.loop = true;
-      src.connect(this.musicGain);
+      // a touch slower + a gentle low-pass keeps Kenney loops dark, not loud
+      src.playbackRate.value = name === "boss" ? 0.95 : 0.9;
+      const lp = this.ctx.createBiquadFilter();
+      lp.type = "lowpass";
+      lp.frequency.value = name === "boss" ? 2600 : 1900;
+      src.connect(lp);
+      lp.connect(this.musicGain);
       src.start();
-      this.musicNodes.push(src);
+      this.musicNodes.push(src, lp);
     } else {
       this.startDrone(name);
     }
-    // fade in
     const t = this.now();
     this.musicGain.gain.cancelScheduledValues(t);
     this.musicGain.gain.setValueAtTime(Math.max(0.0001, this.musicGain.gain.value), t);
-    this.musicGain.gain.linearRampToValueAtTime(target, t + 1.2);
+    this.musicGain.gain.linearRampToValueAtTime(target, t + 1.4);
   }
 
-  /** Synthesized ambient bed used when no Kenney music decoded. */
-  private startDrone(name: MusicName): void {
+  /** Darker synthesized ambient bed used when no Kenney music decoded. */
+  private startDrone(name: Biome): void {
     if (!this.ctx || !this.musicGain) return;
-    const root = name === "boss" ? 65.41 : 73.42; // C2 / D2
-    const intervals = name === "boss" ? [1, 1.5, 1.19] : [1, 1.5, 2];
+    // lower roots + minor intervals = darker than Round 1
+    const root = name === "boss" ? 43.65 : name === "region" ? 48.99 : 55.0; // F1 / G1 / A1
+    const intervals = name === "boss" ? [1, 1.5, 1.189] : name === "region" ? [1, 1.335, 2] : [1, 1.5, 1.189];
     intervals.forEach((mult, i) => {
       const osc = this.ctx!.createOscillator();
-      osc.type = i === 0 ? "sine" : "triangle";
+      osc.type = i === 0 ? "sine" : i === 1 ? "triangle" : "sawtooth";
       osc.frequency.value = root * mult;
       const g = this.ctx!.createGain();
-      g.gain.value = i === 0 ? 0.5 : 0.22;
+      g.gain.value = i === 0 ? 0.55 : i === 1 ? 0.2 : 0.08;
+      const lp = this.ctx!.createBiquadFilter();
+      lp.type = "lowpass";
+      lp.frequency.value = 900;
       const lfo = this.ctx!.createOscillator();
-      lfo.frequency.value = 0.06 + i * 0.03;
+      lfo.frequency.value = 0.04 + i * 0.025;
       const lfoG = this.ctx!.createGain();
-      lfoG.gain.value = i === 0 ? 0.12 : 0.08;
+      lfoG.gain.value = i === 0 ? 0.12 : 0.07;
       lfo.connect(lfoG);
       lfoG.connect(g.gain);
-      osc.connect(g);
+      osc.connect(lp);
+      lp.connect(g);
       g.connect(this.musicGain!);
       osc.start();
       lfo.start();
-      this.musicNodes.push(osc, lfo);
+      this.musicNodes.push(osc, lfo, lp);
     });
-    // sparse bell motif for boss tension / explore calm
-    const step = name === "boss" ? 2.4 : 4.2;
-    const notes = name === "boss" ? [392, 466, 311] : [523, 659, 784, 587];
+    // sparse, unresolved bell motif
+    const step = name === "boss" ? 2.6 : name === "region" ? 4.8 : 4.4;
+    const notes =
+      name === "boss" ? [196, 233, 174.6] : name === "region" ? [293.7, 220, 329.6] : [261.6, 196, 311.1];
     let idx = 0;
     const tick = () => {
       if (this.currentMusic !== name || !this.ctx) return;
-      this.tone({
-        freq: notes[idx % notes.length],
-        dur: name === "boss" ? 0.9 : 1.6,
-        type: "sine",
-        gain: 0.05,
-        attack: 0.2,
-      });
+      this.tone({ freq: notes[idx % notes.length], dur: name === "boss" ? 1.0 : 1.8, type: "sine", gain: 0.045, attack: 0.25 });
       idx++;
       this.droneTimer = window.setTimeout(tick, step * 1000);
     };
-    this.droneTimer = window.setTimeout(tick, 800);
+    this.droneTimer = window.setTimeout(tick, 900);
+  }
+
+  /** Persistent dark combat pulse, gated by combatGain (0 when not fighting). */
+  private startCombatLayer(): void {
+    if (!this.ctx || !this.combatGain) return;
+    let beat = 0;
+    const loop = () => {
+      if (!this.ctx || !this.combatGain) return;
+      // smooth the level toward target (for tempo decisions)
+      this.combatLevel += (this.combatTarget - this.combatLevel) * 0.25;
+      const t = this.now();
+      // low kick on the beat
+      const osc = this.ctx.createOscillator();
+      const g = this.ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(120, t);
+      osc.frequency.exponentialRampToValueAtTime(45, t + 0.16);
+      g.gain.setValueAtTime(0.9, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
+      osc.connect(g);
+      g.connect(this.combatGain);
+      osc.start(t);
+      osc.stop(t + 0.2);
+      // off-beat noise tick when intensity is high
+      if (beat % 2 === 1 && this.combatTarget > 0.4) {
+        const len = Math.floor(this.ctx.sampleRate * 0.05);
+        const b = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
+        const d = b.getChannelData(0);
+        for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
+        const ns = this.ctx.createBufferSource();
+        ns.buffer = b;
+        const hp = this.ctx.createBiquadFilter();
+        hp.type = "highpass";
+        hp.frequency.value = 4000;
+        const ng = this.ctx.createGain();
+        ng.gain.value = 0.5;
+        ns.connect(hp);
+        hp.connect(ng);
+        ng.connect(this.combatGain);
+        ns.start(t);
+      }
+      beat++;
+      // faster pulse as the fight intensifies
+      const interval = 620 - this.combatLevel * 200;
+      this.combatTimer = window.setTimeout(loop, interval);
+    };
+    this.combatTimer = window.setTimeout(loop, 600);
   }
 
   private stopMusicNodes(): void {
@@ -378,6 +462,12 @@ export class AudioManager {
   }
 
   stopMusic(): void {
+    this.combatTarget = 0;
+    if (this.combatGain && this.ctx) {
+      const ct = this.now();
+      this.combatGain.gain.cancelScheduledValues(ct);
+      this.combatGain.gain.setTargetAtTime(0.0001, ct, 0.3);
+    }
     if (!this.musicGain || !this.ctx) {
       this.currentMusic = null;
       return;

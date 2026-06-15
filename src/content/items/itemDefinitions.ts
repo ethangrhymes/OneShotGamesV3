@@ -43,6 +43,14 @@ export const itemDefinitions: Record<string, ItemDef> = {
     description: "Soot-light boots. Your roll recovers far sooner.",
     upgrade: "swiftBoots",
   },
+  emberHeart: {
+    id: "emberHeart",
+    name: "Ember Heart",
+    kind: "upgrade",
+    sprite: "tt_relic",
+    description: "A still-warm heart of the road. Maximum hearts +1.",
+    upgrade: "emberHeart",
+  },
   potion: {
     id: "potion",
     name: "Ember Draught",

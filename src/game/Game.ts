@@ -34,6 +34,7 @@ import {
 } from "./Combat";
 import { restAtCheckpoint } from "./Checkpoints";
 import { discoverLore } from "./Lore";
+import { runValidation } from "./Validator";
 import { Balance, TILE } from "./Balance";
 import act1 from "../content/acts/act1";
 import type { ChestContents } from "./types";
@@ -49,6 +50,7 @@ type State =
   | "reading"
   | "dead"
   | "victory"
+  | "regionComplete"
   | "credits";
 
 type InteractionTarget =
@@ -83,6 +85,9 @@ export class Game implements CombatHooks, CombatCallbacks {
   time = 0;
   fade = 0;
   hard = false;
+  debug = false;
+  private currentRegionId = "";
+  private pendingVictory = false;
 
   private near: InteractionTarget = null;
   private modal: ModalContent | null = null;
@@ -114,6 +119,13 @@ export class Game implements CombatHooks, CombatCallbacks {
     document.addEventListener("visibilitychange", () => {
       if (document.hidden && this.state === "playing") this.state = "pause";
     });
+    // F2 toggles the traversal/collision debug overlay (dev aid, harmless in prod)
+    window.addEventListener("keydown", (e) => {
+      if (e.key === "F2") {
+        e.preventDefault();
+        this.debug = !this.debug;
+      }
+    });
     this.ui.computeScale();
   }
 
@@ -126,6 +138,14 @@ export class Game implements CombatHooks, CombatCallbacks {
     this.loop(performance.now());
     await this.assets.load((l, t) => (this.loadProgress = l / t));
     this.audio.setSources(this.assets.audioSources());
+    // Dev-only content validation (logs warnings, throws on severe errors).
+    // Caught so a content bug surfaces loudly in the console without blanking
+    // the screen; production skips this entirely.
+    try {
+      runValidation(this.world.act);
+    } catch (e) {
+      console.error(e);
+    }
     this.state = "title";
   }
 
@@ -141,6 +161,9 @@ export class Game implements CombatHooks, CombatCallbacks {
     this.save.clearRun();
     this.run = new RunState(this.hard ? "hard" : "normal");
     this.run.stats.startTime = performance.now();
+    this.currentRegionId = "";
+    this.save.data.discoveredRegions = ["sunken_keep"];
+    this.save.flush();
     const startRoom = this.world.startRoomId;
     this.run.checkpointId = "cp_gate";
     this.run.checkpointRoomId = startRoom;
@@ -159,7 +182,17 @@ export class Game implements CombatHooks, CombatCallbacks {
     this.run.stats.startTime = performance.now();
     // Continuing always resumes rested at the last Emberlight.
     this.run.fullHeal();
-    const roomId = this.run.checkpointRoomId || this.world.startRoomId;
+    this.currentRegionId = "";
+    // Save migration: if a saved checkpoint room no longer exists (room ids
+    // changed between versions), fall back to the act's start so we never load
+    // the player into an invalid/void room.
+    let roomId = this.run.checkpointRoomId || this.world.startRoomId;
+    if (!this.world.hasRoom(roomId)) {
+      console.warn(`[save] checkpoint room "${roomId}" missing — resetting to start.`);
+      roomId = this.world.startRoomId;
+      this.run.checkpointId = "cp_gate";
+      this.run.checkpointRoomId = roomId;
+    }
     this.enterRoom(roomId, null, true);
     // place at checkpoint
     this.placeAtCheckpoint(roomId);
@@ -258,6 +291,30 @@ export class Game implements CombatHooks, CombatCallbacks {
 
     this.renderer.resetCamera();
     this.updateMusic();
+
+    // region banner + discovery
+    const region = this.world.regionOf(roomId);
+    if (region && region.id !== this.currentRegionId) {
+      this.currentRegionId = region.id;
+      const firstTime = !this.save.data.discoveredRegions.includes(region.id);
+      if (firstTime) {
+        this.save.data.discoveredRegions.push(region.id);
+        if (!this.save.data.unlockedRegions.includes(region.id)) this.save.data.unlockedRegions.push(region.id);
+        this.save.flush();
+      }
+      this.ui.banner(region.name, firstTime ? "New region discovered" : region.theme, region.accent ?? "#ff9a3c");
+    }
+
+    // Boss intro banner + arena lock: seal the doors until the boss falls.
+    if (this.boss && this.boss.alive) {
+      this.ui.banner(this.boss.def.name, this.boss.def.title, this.boss.def.isMiniboss ? "#ffb43c" : "#ff5a3c", 3.6);
+      for (const d of this.world.current.doors) d.open = false;
+    }
+
+    // Entering the Summit after the Warden falls = Act I victory beat.
+    if (roomId === "summit" && this.run.getFlag("actBossDefeated") && !this.run.getFlag("actVictoryShown")) {
+      this.pendingVictory = true;
+    }
   }
 
   private markSolidProp(room: Room, it: Interactable) {
@@ -271,10 +328,21 @@ export class Game implements CombatHooks, CombatCallbacks {
     for (const d of this.world.current.doors) d.open = this.world.isDoorOpen(d.def, this.run);
   }
 
+  /** Adaptive music: pick the biome, mark safe rooms, and feed combat tension. */
   private updateMusic() {
+    const room = this.world.current;
     const bossActive = !!this.boss && this.boss.alive;
-    const bossRoom = this.world.current.def.music === "boss";
-    this.audio.startMusic(bossActive && bossRoom ? "boss" : "explore");
+    const biome = bossActive && room.def.music === "boss" ? "boss" : room.def.music === "region" ? "region" : "explore";
+    this.audio.setMusicScene(biome, !!room.def.isSafe, this.combatIntensity());
+  }
+
+  private combatIntensity(): number {
+    if (this.boss && this.boss.alive && this.boss.phase !== "intro") return this.boss.enraged ? 1 : 0.75;
+    let near = 0;
+    for (const e of this.enemies) {
+      if (e.alive && Math.hypot(e.x - this.player.x, e.y - this.player.y) < 220) near++;
+    }
+    return Math.min(1, near * 0.34);
   }
 
   // =====================================================================
@@ -321,6 +389,22 @@ export class Game implements CombatHooks, CombatCallbacks {
     this.spawnEmberDrops(e.x, e.y, e.def.embers);
     if (Math.random() < (e.def.heartChance ?? 0)) {
       this.interactables.push(this.makeFloatingPickup(e.x, e.y, "heart"));
+    }
+    // splitter: spawn its minis where it fell
+    if (e.def.splitsInto) {
+      for (let i = 0; i < e.def.splitsInto.count; i++) {
+        const a = (i / e.def.splitsInto.count) * Math.PI * 2;
+        this.spawnAdd(e.def.splitsInto.ref, e.x + Math.cos(a) * 10, e.y + Math.sin(a) * 10);
+      }
+    }
+    // elite/champion: a defeat beat + persistent flag so it stays down
+    if (e.def.elite) {
+      this.run.setFlag("optionalEliteDefeated", true);
+      this.save.data.optionalEliteDefeated = true;
+      this.shake(8);
+      this.burst(e.x, e.y, e.def.fallbackColor, 24);
+      this.toast(`${e.def.name} falls!`, "#ffcf5a");
+      this.persist();
     }
     this.sfx("coin");
   }
@@ -413,6 +497,7 @@ export class Game implements CombatHooks, CombatCallbacks {
       case "reading":
       case "dead":
       case "victory":
+      case "regionComplete":
         this.input.setTouchVisible(false);
         this.menuInput();
         return;
@@ -495,11 +580,22 @@ export class Game implements CombatHooks, CombatCallbacks {
         else if (id === "abandon") this.toTitle();
         break;
       case "victory":
-        if (id === "replay") {
+        if (id === "onward") {
+          // resume the run; the summit gate is open, walk east into the Rootward Road
+          this.updateMusic();
+          this.state = "playing";
+        } else if (id === "replay") {
           this.hard = this.save.data.difficultyMode === "hard";
           this.newRun();
         } else if (id === "title") this.toTitle();
         else if (id === "credits") this.openCredits("victory");
+        break;
+      case "regionComplete":
+        if (id === "replay") {
+          this.hard = this.save.data.difficultyMode === "hard";
+          this.newRun();
+        } else if (id === "title") this.toTitle();
+        else if (id === "credits") this.openCredits("regionComplete");
         break;
     }
   }
@@ -530,6 +626,11 @@ export class Game implements CombatHooks, CombatCallbacks {
 
   // ----- gameplay -----
   private updatePlaying(dt: number) {
+    if (this.pendingVictory) {
+      this.pendingVictory = false;
+      this.victory();
+      return;
+    }
     this.run.stats.elapsedMs += dt * 1000;
 
     // HUD pause/mute taps
@@ -601,8 +702,8 @@ export class Game implements CombatHooks, CombatCallbacks {
     this.funnelToDoors(dt);
     this.checkDoorTransition();
 
-    // music track switch (boss waking)
-    this.maybeBossMusic();
+    // adaptive music: biome + combat tension, updated continuously
+    this.updateMusic();
 
     this.renderer.updateCamera(dt, this.player, room);
     if (this.player.run.hp <= 0 && this.state === "playing") this.die();
@@ -637,6 +738,11 @@ export class Game implements CombatHooks, CombatCallbacks {
             this.run.lostEmbers = 0;
             this.run.lostRoomId = null;
           }
+        } else if (it.pickup === "token") {
+          this.run.addToken(1);
+          this.sfx("unlock");
+          this.toast(`Bell Token  (${this.run.bellTokens}/3)`, "#ffcf5a");
+          this.persist();
         } else if (it.pickup === "potion") {
           this.run.heal(Balance.economy.potionHeal);
           this.sfx("pickup");
@@ -690,7 +796,7 @@ export class Game implements CombatHooks, CombatCallbacks {
         (it.kind === "lever" && !it.used) ||
         (it.kind === "lore" && !it.used) ||
         it.kind === "checkpoint" ||
-        (it.kind === "prop" && it.uid === "world_gate");
+        (it.kind === "prop" && it.uid === "act2_gate");
       if (!interactable) continue;
       const d = Math.hypot(p.x - it.x, p.y - it.y);
       if (d < bestD) {
@@ -737,7 +843,7 @@ export class Game implements CombatHooks, CombatCallbacks {
         this.useCheckpoint(it);
         break;
       case "prop":
-        if (it.uid === "world_gate") this.victory();
+        if (it.uid === "act2_gate") this.regionComplete();
         break;
     }
   }
@@ -907,13 +1013,6 @@ export class Game implements CombatHooks, CombatCallbacks {
     }
   }
 
-  private maybeBossMusic() {
-    const room = this.world.current;
-    if (room.def.music === "boss" && this.boss && this.boss.alive) {
-      this.audio.startMusic("boss");
-    }
-  }
-
   // ----- death / victory -----
   private die() {
     this.run.stats.deaths++;
@@ -998,23 +1097,44 @@ export class Game implements CombatHooks, CombatCallbacks {
   }
 
   private victory() {
-    if (this.state === "victory") return;
-    const res = this.save.recordWin(this.run.stats.elapsedMs, this.run.stats.embersCollected);
-    this.save.clearRun();
-    this.lastWinBest = { time: res.newBestTime, embers: res.newBestEmbers };
+    // Act I complete beat. The run CONTINUES afterward (onward to Round 2),
+    // so we do NOT clear the saved run here — only record the win once.
+    if (!this.run.getFlag("actVictoryShown")) {
+      this.run.setFlag("actVictoryShown", true);
+      const res = this.save.recordWin(this.run.stats.elapsedMs, this.run.stats.embersCollected);
+      this.lastWinBest = { time: res.newBestTime, embers: res.newBestEmbers };
+      this.persist();
+    }
     this.audio.play("victory");
     this.audio.stopMusic();
     this.state = "victory";
   }
   lastWinBest = { time: false, embers: false };
 
+  /** Round 2 endpoint — reached at the sealed Act II causeway gate. */
+  private regionComplete() {
+    this.save.data.completedMiniRegion = true;
+    this.save.data.round2VisitedWorldGate = true;
+    this.save.flush();
+    this.persist();
+    this.audio.play("victory");
+    this.audio.stopMusic();
+    this.state = "regionComplete";
+  }
+
   // =====================================================================
   // Objective hint
   // =====================================================================
   private objective(): string {
     const r = this.run;
+    const region = this.world.regionOf(this.world.current.def.id);
+    if (region?.id === "rootward_road") {
+      if (this.world.current.def.id === "rr_causeway") return "Examine the sealed causeway gate.";
+      if (r.getFlag("road_shortcut")) return "Follow the bell-road east to the sealed causeway.";
+      return "Walk the Rootward Road east. Seek the sealed causeway.";
+    }
     if (r.getFlag("actBossDefeated")) {
-      return this.world.current.def.id === "summit" ? "Approach the sealed world-gate." : "The curse is broken. Climb to the summit.";
+      return this.world.current.def.id === "summit" ? "Step through the world-gate, east." : "The curse is broken. Climb to the summit.";
     }
     if (this.world.current.def.id === "throne") return "Break the curse — defeat the Hollow Warden.";
     if (r.getFlag(World.doorFlag("bossgate_e"))) return "Enter the Hollow Throne.";
@@ -1041,7 +1161,7 @@ export class Game implements CombatHooks, CombatCallbacks {
     }
 
     // draw world for in-world states
-    const inWorld = ["playing", "transition", "pause", "checkpoint", "reading", "dead", "victory"].includes(this.state);
+    const inWorld = ["playing", "transition", "pause", "checkpoint", "reading", "dead", "victory", "regionComplete"].includes(this.state);
     if (inWorld && this.world.current && this.player) {
       const view: SceneView = {
         room: this.world.current,
@@ -1057,6 +1177,7 @@ export class Game implements CombatHooks, CombatCallbacks {
         nearInteractable: this.state === "playing" && this.near?.type === "interactable" ? this.near.it : null,
         time: this.time,
         fade: this.fade,
+        debug: this.debug,
       };
       this.renderer.drawScene(view);
     }
@@ -1083,6 +1204,9 @@ export class Game implements CombatHooks, CombatCallbacks {
       case "victory":
         this.ui.drawVictory(this.run, this.save.data, this.lastWinBest);
         break;
+      case "regionComplete":
+        this.ui.drawRegionComplete(this.run, this.save.data);
+        break;
       case "controls":
         this.drawWorldBackdrop();
         this.ui.drawControls();
@@ -1092,6 +1216,8 @@ export class Game implements CombatHooks, CombatCallbacks {
         this.ui.drawCredits();
         break;
     }
+    // banners (region entered / discovery / boss intro) overlay everything
+    this.ui.drawBanner();
   }
 
   private checkpointDisplayName(): string {
@@ -1104,7 +1230,8 @@ export class Game implements CombatHooks, CombatCallbacks {
   }
 
   private hudInfo(): HudInfo {
-    const region = this.world.act.regions[0];
+    const roomId = this.world.current.def.id;
+    const region = this.world.regionOf(roomId) ?? this.world.act.regions[0];
     return {
       objective: this.objective(),
       boss:
@@ -1112,8 +1239,10 @@ export class Game implements CombatHooks, CombatCallbacks {
           ? { name: this.boss.def.name, hp: this.boss.hp, maxHp: this.boss.maxHp, enraged: this.boss.enraged }
           : null,
       rooms: region.rooms.map((r) => ({ id: r.id, gx: r.gx, gy: r.gy })),
-      currentRoomId: this.world.current.def.id,
+      currentRoomId: roomId,
       visited: this.run.stats.roomsVisited,
+      regionName: region.name,
+      accent: region.accent ?? "#ff9a3c",
     };
   }
 

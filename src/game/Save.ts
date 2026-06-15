@@ -26,6 +26,12 @@ function defaults(): SaveData {
     loreDiscovered: [],
     checkpointId: null,
     difficultyMode: "normal",
+    unlockedRegions: ["sunken_keep"],
+    discoveredRegions: ["sunken_keep"],
+    completedMiniRegion: false,
+    round2VisitedWorldGate: false,
+    optionalEliteDefeated: false,
+    audioModeVersion: 2,
   };
 }
 

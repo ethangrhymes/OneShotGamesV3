@@ -249,15 +249,120 @@ Sprites are referenced by **semantic key** (e.g. `"player"`, `"enemy_wraith"`,
 
 To add a new sprite:
 
-1. Edit `tileSelection` (or `audioSelection`) in
+1. Edit `tileSelection`/`townSelection` (or `audioSelection`) in
    [`scripts/prepare-assets.mjs`](scripts/prepare-assets.mjs) — map a new
-   `"semantic_name.png"` to a Tiny Dungeon tile index (the indices are documented in
-   that file; the pack is a 12×11 grid, indices 0–131).
+   `"semantic_name.png"` to a tile index in its pack (each pack is a 12×11 grid,
+   indices 0–131; indices are documented inline).
 2. Run `node scripts/prepare-assets.mjs` to copy it and regenerate `manifest.json`.
 3. Reference `"semantic_name"` from a def's `sprite` field, and add a procedural
    fallback in `Renderer.ts` if it's a brand-new category.
 
 Anything without a tile (hearts, embers, keys) is drawn procedurally in `Renderer.ts`.
+
+### Using more Kenney packs creatively (mixed styles by region)
+
+The bundle is a toolbox — you are NOT limited to one pack. Round 2 adds Kenney
+**Tiny Town** (`tt_*` keys) alongside Tiny Dungeon for the outdoor region. Guidelines
+that keep mixing intentional instead of noisy:
+
+- **Match scale.** Prefer packs that are also 16×16 (Tiny Town, Tiny Dungeon, etc.)
+  so the player/enemy colliders and combat reach stay correct. If you must use a
+  different scale, normalize it when copying or via the sprite draw size.
+- **Namespace keys** by pack (`tt_*`) so they never clash, and record the source
+  pack + index in the manifest (the prepare script does this automatically).
+- **Justify it in the lore.** Forest/roots = the curse taking root; machines = old
+  warding engines; water = drowned halls; desert/ash = the road beyond the gate.
+  Put the explanation in a `LoreEntry` near the visual shift.
+- **Keep it readable & light.** Copy only the tiles a region needs (don't bulk-copy
+  a pack), keep procedural fallbacks, and watch the deployed asset size.
+
+To theme a region's tiles, give its rooms a `theme: "outdoor"` plus a `floor`/`wall`
+style; `Renderer.floorKey`/`wallKey`/`propKey` map those styles to the `tt_*` sprites.
+Add new styles there if you introduce another pack.
+
+---
+
+## Adding a new region (the Round 2 pattern)
+
+A region is a `RegionDef` (id, name, theme, `accent` minimap color, `startRoomId`,
+`rooms[]`). See [`src/content/regions/rootwardRoad.ts`](src/content/regions/rootwardRoad.ts).
+
+1. Create `src/content/regions/myRegion.ts` exporting a `RegionDef`. Give each room a
+   `theme` and themed `floor`/`wall` (see the asset section for the style → sprite map).
+2. Add it to an act's `regions` array (e.g. in `act1.ts`). `World` indexes rooms across
+   **all** regions, so cross-region doors "just work".
+3. **Connect it with a real door**, not just code, so the validator can prove it's
+   reachable. The summit links to the Rootward Road via a `shortcut` door gated by the
+   `actBossDefeated` flag (`summit_gate` ↔ `rr_gate_w`). Walking through it triggers the
+   region banner; `Game.enterRoom` records discovery in `save.discoveredRegions`.
+4. **Region banner & minimap** are automatic: `World.regionOf(roomId)` drives the
+   region-grouped, `accent`-colored minimap and the "New region discovered" banner.
+5. **Endpoint:** to end a region with a teaser screen, place a `prop` with a known
+   `uid` (we use `act2_gate`) and handle it in `Game.doInteract` → a completion state
+   (we added `regionComplete` + `UI.drawRegionComplete`). Copy that pattern for Act II.
+
+### Adding post-boss / future-gate content
+
+- A boss's `setsFlag` (e.g. `actBossDefeated`) opens any `shortcut` door whose `flag`
+  matches — that's how the world-gate to the next region appears after victory.
+- A **visibly locked future gate** is just a door/prop the player can see but not pass
+  (the sealed causeway). It implies Act II without needing Act II to exist.
+
+---
+
+## Validating room traversal (don't ship unreachable rooms)
+
+[`src/game/Validator.ts`](src/game/Validator.ts) runs automatically at startup **in
+dev** (`import.meta.env.DEV`). It:
+
+- logs warnings, and **throws before gameplay** on any error;
+- checks door pairing, door/spawn bounds, spawns-not-in-walls, and that every door's
+  **entry tile is passable**;
+- runs a monotonic reachability fixpoint (keys/seals/flags/levers/boss-flags) and
+  errors if **any room is unreachable**, if the **boss room needs a consumable key**
+  (critical path must be key-free), or if **seals are short** for a boss gate.
+
+In production it does not run (shipped content is pre-validated), so players never
+crash on it. To read the output, open the browser console after `npm run dev` — a
+clean act logs `✓ "<act>" passed`.
+
+**Debug overlay:** press **F2** in-game to toggle a collision overlay with spawn
+markers, enemy behavior labels, and door lock/target labels — invaluable for spotting
+a spawn in a wall or a door that won't open.
+
+Defining room entrances/exits safely:
+
+- Put doors on the wall **border** at `(tx,ty)`; openings are carved automatically.
+- The player lands one tile **inward** of the partner door — keep that tile floor.
+- Don't place solid props on the only route through a room; the validator warns on odd
+  spawns but you should still walk it (or F2 it).
+
+---
+
+## Adding darker / adaptive music states
+
+Music is scene-based. `Game.updateMusic()` (called on room entry and every frame)
+picks a **biome** (`explore` / `boss` / `region` from `room.music`), marks **safe**
+rooms (`room.isSafe`), and computes a **combat** intensity (nearby aggroed enemies /
+boss phase). It calls `audio.setMusicScene(biome, safe, combat)`.
+
+- To add a region's ambience, set its rooms' `music: "region"` and (optionally) add a
+  `music_region2.ogg` candidate in `prepare-assets.mjs`. With no clip, the synth drone
+  in `AudioManager.startDrone` plays — tune its root/intervals/bells for a new mood.
+- The **combat layer** (`AudioManager.startCombatLayer`) is a dark pulse gated by
+  `combatGain`; it fades in via `combatTarget`. Keep new layers quiet — "darker, not
+  louder." Everything is synth-backed, so it never crashes if `.ogg` won't decode.
+
+---
+
+## Migrating saves when room ids change
+
+`Save` merges loaded data over fresh defaults, so **new fields auto-initialize** on old
+saves — just add them to `defaults()` in [`src/game/Save.ts`](src/game/Save.ts). For an
+in-progress run, `Game.continueRun` validates `checkpointRoomId` against `World.hasRoom`
+and falls back to the act start if a saved room was removed/renamed, so a player is
+never loaded into a void. If you rename room ids, prefer keeping the old id as an alias
+or bump a save version and clear stale runs.
 
 ---
 
@@ -280,22 +385,25 @@ You usually **don't** touch `World.ts`, `Dungeon.ts`, `Entities.ts`, `Combat.ts`
 
 ## Testing that an act is winnable
 
-A run must never softlock. Checklist when authoring rooms:
+A run must never softlock. **The validator above enforces most of this automatically**
+— but when authoring rooms, keep these in mind:
 
 1. **Critical path uses only `open`/`bossGate`/`shortcut` doors and guaranteed seals**
-   — never an Iron Key. Iron Keys gate optional rooms only, and there must be at least
-   as many obtainable keys as locked doors you intend to be openable.
-2. **Both boss-gate seals are on reachable, open paths.** In Act 1: Seal 1 is in the
-   Gallery (open off the Well hub); Seal 2 is the Gaoler miniboss reward.
-3. **Every door is paired** (`toDoorId` exists in the target room, and vice-versa).
+   — never an Iron Key. The validator errors (`boss-needs-key`) if the boss room is
+   only reachable by consuming a key.
+2. **Boss-gate seals are on reachable, open paths.** In Act I, Seal 1 is in the Gallery
+   (open off the Well hub); Seal 2 is the Gaoler miniboss reward.
+3. **Every door is paired** (`toDoorId` exists in the target, and points back).
 4. **Spawns sit on floor tiles** (not on `#`/`=`), and solid props don't block the only
    route through a room.
-5. Playtest the full path: title → start → reach each checkpoint → both seals → boss
-   gate → final boss → summit world-gate → Act victory.
+5. Playtest the full path on desktop AND a 375–390px mobile viewport: title → start →
+   each checkpoint → seals → boss gate → final boss → summit victory → Walk the Rootward
+   Road → causeway → region complete.
 
 Quick manual verification: `npm run dev`, then in the browser console the game is
 exposed as `window.__game`. You can inspect `__game.run`, `__game.world.current`, or
-call `__game.enterRoom("roomId", null, true)` to jump to a room while testing.
+call `__game.enterRoom("roomId", null, true)` to jump to a room while testing. Press
+**F2** for the collision/spawn/door overlay.
 
 ---
 

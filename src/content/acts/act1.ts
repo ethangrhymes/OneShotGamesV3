@@ -20,6 +20,7 @@ import { enemyDefinitions } from "../enemies/enemyDefinitions";
 import { bossDefinitions } from "../bosses/bossDefinitions";
 import { itemDefinitions } from "../items/itemDefinitions";
 import { loreEntries } from "../lore/loreEntries";
+import { rootwardRoad } from "../regions/rootwardRoad";
 
 const rooms: RoomDef[] = [
   // ---------------------------------------------------------------- gate
@@ -622,11 +623,25 @@ const rooms: RoomDef[] = [
       "#...........#",
       "#############",
     ],
-    doors: [{ id: "summit_w", tx: 0, ty: 4, edge: "w", to: "throne", toDoorId: "throne_e", type: "open" }],
+    doors: [
+      { id: "summit_w", tx: 0, ty: 4, edge: "w", to: "throne", toDoorId: "throne_e", type: "open" },
+      // The world-gate: opens when the Warden falls, leading onward to Round 2's
+      // Rootward Road. Entering the Summit triggers the Act I victory screen.
+      {
+        id: "summit_gate",
+        tx: 12, ty: 4,
+        edge: "e",
+        to: "rr_gate",
+        toDoorId: "rr_gate_w",
+        type: "shortcut",
+        flag: "actBossDefeated",
+        lockedHint: "A world-gate, sealed until the Warden falls.",
+      },
+    ],
     spawns: [
       { kind: "lore", tx: 4, ty: 3, ref: "l_throne", prop: "scroll" },
-      // The sealed world-gate: reaching it completes Act 1 and teases the world.
-      { kind: "prop", tx: 10, ty: 4, prop: "gargoyle", solid: false, uid: "world_gate" },
+      // decorative arch framing the world-gate
+      { kind: "prop", tx: 10, ty: 4, prop: "arch", solid: false, uid: "world_gate" },
       { kind: "prop", tx: 9, ty: 3, prop: "torch", solid: false },
       { kind: "prop", tx: 9, ty: 5, prop: "torch", solid: false },
     ],
@@ -649,10 +664,13 @@ export const act1: WorldAct = {
       id: "sunken_keep",
       name: "The Sunken Keep",
       theme: "cursed flooded dungeon",
+      accent: "#ff9a3c",
       startRoomId: "gate",
       startDoorId: "gate_e",
       rooms,
     },
+    // Round 2 expansion region — reached through the summit world-gate.
+    rootwardRoad,
   ],
 };
 

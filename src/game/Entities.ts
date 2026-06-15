@@ -216,6 +216,14 @@ export class Enemy {
   lungeVY = 0;
   wobble: number;
   isAdd = false;
+  // charger state
+  chargeState: "idle" | "windup" | "charge" | "recover" = "idle";
+  chargeT = 0;
+  chargeCdT = 1.4;
+  chargeVX = 0;
+  chargeVY = 0;
+  /** set while telegraphing a heavy attack — the renderer flashes a warning. */
+  telegraphing = false;
 
   constructor(def: EnemyDef, x: number, y: number, hpScale = 1, dmgScale = 1, speedScale = 1) {
     this.def = { ...def, hp: Math.round(def.hp * hpScale), damage: Math.max(1, Math.round(def.damage * dmgScale)), speed: def.speed * speedScale };
@@ -315,6 +323,71 @@ export class Enemy {
           }
         }
         break;
+
+      case "turret":
+        // stationary caster — fires a telegraphed spread
+        if (active) {
+          this.fireT -= dt;
+          this.telegraphing = this.fireT < 0.4 && this.fireT > 0;
+          if (this.fireT <= 0) {
+            this.fireT = this.def.fireInterval ?? 2.2;
+            const ps = this.def.projectileSpeed ?? 120;
+            const base = Math.atan2(dy, dx);
+            for (let i = -1; i <= 1; i++) {
+              const a = base + i * 0.25;
+              hooks.spawnProjectile(this.x, this.y, Math.cos(a) * ps, Math.sin(a) * ps, false, this.def.damage);
+            }
+            hooks.sfx("attack");
+          }
+        }
+        break;
+
+      case "charger": {
+        this.telegraphing = this.chargeState === "windup";
+        if (this.chargeState === "idle") {
+          this.chargeCdT -= dt;
+          if (active && dist > 22) {
+            vx = (dx / dist) * sp * 0.7;
+            vy = (dy / dist) * sp * 0.7;
+          }
+          if (active && this.chargeCdT <= 0 && dist < (aggro || 220) * 0.9) {
+            this.chargeState = "windup";
+            this.chargeT = 0.7;
+            this.chargeVX = (dx / dist) * sp * 4.4;
+            this.chargeVY = (dy / dist) * sp * 4.4;
+          }
+        } else if (this.chargeState === "windup") {
+          this.chargeT -= dt;
+          if (this.chargeT <= 0) {
+            this.chargeState = "charge";
+            this.chargeT = 0.55;
+            hooks.sfx("bosshit");
+          }
+        } else if (this.chargeState === "charge") {
+          this.chargeT -= dt;
+          vx = this.chargeVX;
+          vy = this.chargeVY;
+          if (this.chargeT <= 0) {
+            this.chargeState = "recover";
+            this.chargeT = 0.5;
+          }
+        } else {
+          this.chargeT -= dt;
+          if (this.chargeT <= 0) {
+            this.chargeState = "idle";
+            this.chargeCdT = 2.2;
+          }
+        }
+        break;
+      }
+
+      case "splitter":
+        // behaves like a chaser; the split happens on death (see Game.onEnemyKilled)
+        if (active) {
+          vx = (dx / dist) * sp;
+          vy = (dy / dist) * sp;
+        }
+        break;
     }
 
     // knockback
@@ -328,6 +401,11 @@ export class Enemy {
     if (this.def.behavior === "patroller") {
       if (res.hitX) this.patrolX *= -1;
       if (res.hitY) this.patrolY *= -1;
+    }
+    // a charging charger stops when it slams a wall
+    if (this.def.behavior === "charger" && this.chargeState === "charge" && (res.hitX || res.hitY)) {
+      this.chargeState = "recover";
+      this.chargeT = 0.45;
     }
     this.x = res.x;
     this.y = res.y;

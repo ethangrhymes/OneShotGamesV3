@@ -83,6 +83,7 @@ export interface SceneView {
   nearInteractable: Interactable | null;
   time: number;
   fade: number; // 0 transparent .. 1 black (room transitions)
+  debug?: boolean;
 }
 
 const FLOOR_KEYS: Record<number, string> = { 0: "floor", 1: "floor_b", 2: "floor_c", 3: "floor_tile" };
@@ -225,10 +226,80 @@ export class Renderer {
       this.vignette("rgba(0,0,0,0.28)");
     }
 
+    if (view.debug) this.drawDebug(view);
+
     if (view.fade > 0) {
       this.ctx.fillStyle = `rgba(6,5,9,${view.fade})`;
       this.ctx.fillRect(0, 0, this.viewW, this.viewH);
     }
+  }
+
+  /** F2 debug overlay: collision, doors+lock labels, spawns, enemies. */
+  private drawDebug(view: SceneView) {
+    const ctx = this.ctx;
+    const room = view.room;
+    const ts = TILE * this.scale;
+    // collision / hazard tiles
+    for (let ty = 0; ty < room.h; ty++) {
+      for (let tx = 0; tx < room.w; tx++) {
+        const c = room.cellAt(tx, ty)!;
+        const px = this.sx(tx * TILE);
+        const py = this.sy(ty * TILE);
+        if (px < -ts || py < -ts || px > this.viewW || py > this.viewH) continue;
+        if (room.tileSolid(tx, ty)) {
+          ctx.fillStyle = "rgba(255,40,40,0.28)";
+          ctx.fillRect(px, py, ts, ts);
+        } else if (c.kind === "hazard") {
+          ctx.fillStyle = "rgba(255,210,40,0.3)";
+          ctx.fillRect(px, py, ts, ts);
+        }
+      }
+    }
+    ctx.font = "9px monospace";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    // doors with lock labels
+    for (const d of room.doors) {
+      const cx = this.sx(d.def.tx * TILE + TILE / 2);
+      const cy = this.sy(d.def.ty * TILE + TILE / 2);
+      let label = d.def.type.toUpperCase();
+      if (d.def.type === "bossGate") label = `GATE(${d.def.sealsRequired ?? 2})`;
+      else if (d.def.type === "locked") label = "LOCK(key)";
+      else if (d.def.type === "shortcut") label = `SHORT(${d.def.flag ?? "?"})`;
+      ctx.fillStyle = d.open ? "rgba(120,255,140,0.9)" : "rgba(255,160,60,0.95)";
+      ctx.fillRect(cx - 3, cy - 3, 6, 6);
+      ctx.fillStyle = "#fff";
+      ctx.fillText(`${label}->${d.def.to}`, cx, cy - 10);
+    }
+    // interactables
+    for (const it of view.interactables) {
+      const cx = this.sx(it.x);
+      const cy = this.sy(it.y);
+      ctx.fillStyle = "rgba(120,180,255,0.95)";
+      ctx.fillRect(cx - 2, cy - 2, 4, 4);
+      const tag = it.kind === "prop" ? it.prop : it.kind === "pickup" ? it.pickup : it.ref ?? it.kind;
+      ctx.fillStyle = "#bfe0ff";
+      ctx.fillText(String(tag ?? it.kind), cx, cy + 10);
+    }
+    // enemies + boss
+    for (const e of view.enemies) {
+      if (!e.alive) continue;
+      ctx.fillStyle = "#ff5a6a";
+      ctx.fillText(e.def.behavior, this.sx(e.x), this.sy(e.y) - 12);
+    }
+    if (view.boss && view.boss.alive) {
+      ctx.fillStyle = "#ffd27a";
+      ctx.fillText(view.boss.phase, this.sx(view.boss.x), this.sy(view.boss.y) - 16);
+    }
+    // player position
+    ctx.fillStyle = "rgba(120,255,140,1)";
+    ctx.fillRect(this.sx(view.player.x) - 2, this.sy(view.player.y) - 2, 4, 4);
+    // header
+    ctx.fillStyle = "rgba(0,0,0,0.6)";
+    ctx.fillRect(0, this.viewH - 18, this.viewW, 18);
+    ctx.fillStyle = "#9effa0";
+    ctx.textAlign = "left";
+    ctx.fillText(`DEBUG  room=${room.def.id}  enemies=${view.enemies.length}  (F2 to hide)`, 6, this.viewH - 9);
   }
 
   private vignette(color: string) {
@@ -268,27 +339,59 @@ export class Renderer {
     }
   }
 
+  private floorKey(floor: string, variant: number): string {
+    switch (floor) {
+      case "grass":
+        return variant === 1 ? "tt_grass_b" : variant === 2 ? "tt_grass_flower" : variant === 3 ? "tt_path" : "tt_grass";
+      case "path":
+        return "tt_path";
+      case "dirt":
+        return variant === 1 ? "floor_dirt_b" : variant === 2 ? "floor_dirt_c" : variant === 3 ? "floor_tile" : "floor_dirt";
+      case "tile":
+        return "floor_tile";
+      default:
+        return FLOOR_KEYS[variant] ?? "floor";
+    }
+  }
+  private wallKey(wall: string, variant: number): string {
+    switch (wall) {
+      case "stone":
+        return "wall_stone";
+      case "townstone":
+        return "tt_wall_stone";
+      case "redbrick":
+        return "tt_wall_red";
+      case "wood":
+        return "tt_wall_wood";
+      case "hedge":
+        return "tt_tree";
+      default:
+        return variant === 1 ? "wall_cracked" : "wall";
+    }
+  }
+
   private drawCell(cell: Cell, room: Room, px: number, py: number, sz: number, tx: number, ty: number, time: number) {
     const ctx = this.ctx;
+    const outdoor = room.def.theme === "outdoor";
     if (cell.kind === "floor") {
-      const key = FLOOR_KEYS[cell.variant] ?? (room.def.floor === "dirt" ? "floor_dirt" : room.def.floor === "tile" ? "floor_tile" : "floor");
-      const baseKey =
-        room.def.floor === "dirt"
-          ? cell.variant === 1 ? "floor_dirt_b" : cell.variant === 2 ? "floor_dirt_c" : cell.variant === 3 ? "floor_tile" : "floor_dirt"
-          : room.def.floor === "tile"
-          ? "floor_tile"
-          : key;
-      this.blit(baseKey, px, py, sz, sz) || this.fallbackFloor(px, py, sz, room.def.floor);
+      this.blit(this.floorKey(room.def.floor, cell.variant), px, py, sz, sz) || this.fallbackFloor(px, py, sz, room.def.floor);
     } else if (cell.kind === "wall") {
-      const wk = room.def.wall === "stone" ? "wall_stone" : cell.variant === 1 ? "wall_cracked" : "wall";
-      this.blit(wk, px, py, sz, sz) || this.fallbackWall(px, py, sz);
+      // outdoor "hedge" walls: lay grass beneath the tree so edges read cleanly
+      if (room.def.wall === "hedge") this.blit("tt_grass", px, py, sz, sz);
+      this.blit(this.wallKey(room.def.wall, cell.variant), px, py, sz, sz) ||
+        (outdoor ? this.fallbackHedge(px, py, sz) : this.fallbackWall(px, py, sz));
     } else if (cell.kind === "gargoyle") {
-      this.blit("wall_stone", px, py, sz, sz) || this.fallbackWall(px, py, sz);
-      this.blit("gargoyle", px, py, sz, sz) ||
-        (() => {
-          ctx.fillStyle = "#3a4048";
-          ctx.fillRect(px + sz * 0.2, py + sz * 0.2, sz * 0.6, sz * 0.6);
-        })();
+      if (outdoor) {
+        this.blit("tt_grass", px, py, sz, sz) || this.fallbackFloor(px, py, sz, "grass");
+        this.blit("tt_tree", px, py, sz, sz) || this.fallbackHedge(px, py, sz);
+      } else {
+        this.blit("wall_stone", px, py, sz, sz) || this.fallbackWall(px, py, sz);
+        this.blit("gargoyle", px, py, sz, sz) ||
+          (() => {
+            ctx.fillStyle = "#3a4048";
+            ctx.fillRect(px + sz * 0.2, py + sz * 0.2, sz * 0.6, sz * 0.6);
+          })();
+      }
     }
   }
 
@@ -319,18 +422,27 @@ export class Renderer {
   private drawDoors(room: Room) {
     const ctx = this.ctx;
     const ts = Math.ceil(TILE * this.scale) + 1;
+    const outdoor = room.def.theme === "outdoor";
     for (const d of room.doors) {
       const px = Math.round(this.sx(d.def.tx * TILE));
       const py = Math.round(this.sy(d.def.ty * TILE));
       if (d.open) {
-        this.blit("door_open", px, py, ts, ts);
+        // outdoor open passages are just a gap in the trees/wall (floor shows through)
+        if (!outdoor) this.blit("door_open", px, py, ts, ts);
       } else {
-        // closed: gate look for boss/shortcut/gate-style, wood door otherwise
         const gate = d.def.type === "bossGate" || d.def.type === "shortcut";
-        const key = gate ? (d.def.edge === "n" || d.def.edge === "s" ? "gate" : "gate_v") : "door_closed";
-        if (!this.blit(key, px, py, ts, ts)) {
-          ctx.fillStyle = gate ? "#6b7178" : "#5a3a22";
-          ctx.fillRect(px, py, ts, ts);
+        if (outdoor) {
+          // a barred fence/gate across the path
+          if (!this.blit(gate ? "tt_arch" : "tt_fence", px, py, ts, ts)) {
+            ctx.fillStyle = "#7a5a3a";
+            ctx.fillRect(px, py, ts, ts);
+          }
+        } else {
+          const key = gate ? (d.def.edge === "n" || d.def.edge === "s" ? "gate" : "gate_v") : "door_closed";
+          if (!this.blit(key, px, py, ts, ts)) {
+            ctx.fillStyle = gate ? "#6b7178" : "#5a3a22";
+            ctx.fillRect(px, py, ts, ts);
+          }
         }
       }
     }
@@ -369,6 +481,11 @@ export class Renderer {
       }
       case "lore":
       case "prop": {
+        // the sealed world-gate (arch) glows to draw the eye
+        if (it.prop === "arch") {
+          const g = 0.5 + 0.5 * Math.sin(time * 2 + it.bob);
+          this.softGlow(it.x, it.y, ts * (1.6 + g * 0.3), "rgba(150,90,255,0.22)");
+        }
         const key = this.propKey(it);
         if (key) this.blit(key, px, py, ts, ts) || this.fallbackProp(it, px, py, ts);
         if (it.kind === "lore" && !it.used) {
@@ -409,7 +526,10 @@ export class Renderer {
         const yy = py + bob;
         if (it.pickup === "heart") this.fallbackHeart(this.sx(it.x), this.sy(it.y) + bob, ts * 0.42, true);
         else if (it.pickup === "ember") this.fallbackEmber(this.sx(it.x), this.sy(it.y) + bob, ts * 0.3);
-        else if (it.pickup === "potion") {
+        else if (it.pickup === "token") {
+          this.softGlow(it.x, it.y, ts, "rgba(255,200,80,0.3)");
+          this.blit("tt_relic", px, Math.round(yy), ts, ts) || this.fallbackRing(px, Math.round(yy), ts);
+        } else if (it.pickup === "potion") {
           this.blit("potion_green", px, Math.round(yy), ts, ts) || this.fallbackPotion(px, Math.round(yy), ts);
         }
         break;
@@ -418,7 +538,7 @@ export class Renderer {
   }
 
   private propKey(it: Interactable): string {
-    if (it.kind === "lore") return "scroll";
+    if (it.kind === "lore") return it.prop === "sign" ? "tt_sign" : "scroll";
     switch (it.prop) {
       case "barrel":
         return "barrel";
@@ -436,6 +556,21 @@ export class Renderer {
         return "bars";
       case "torch":
         return "torch";
+      // outdoor (Tiny Town) props
+      case "tree":
+        return "tt_tree";
+      case "bush":
+        return "tt_tree_green";
+      case "mushroom":
+        return "tt_mushroom";
+      case "sign":
+        return "tt_sign";
+      case "well":
+        return "tt_well";
+      case "stall":
+        return "tt_stall";
+      case "arch":
+        return "tt_arch";
       default:
         return "barrel";
     }
@@ -525,10 +660,21 @@ export class Renderer {
     this.entityShadow(e.x, e.y, r * 0.8);
     const cx = this.sx(e.x);
     const cy = this.sy(e.y);
-    const facingLeft = this.assets ? false : false;
+    // elites get a colored aura + a small crown marker
+    if (e.def.elite) this.flashBlob(cx, cy, r * 1.25, "rgba(255,170,60,0.18)");
+    // heavy-attack telegraph (charger windup / turret pre-fire): red warning pulse
+    if (e.telegraphing) {
+      const p = 0.5 + 0.5 * Math.sin(this.timeAcc * 28);
+      this.flashBlob(cx, cy, r * (1.1 + p * 0.3), `rgba(255,70,40,${0.25 + p * 0.25})`);
+    }
     ctx.save();
     this.blitCentered(e.def.sprite, cx, cy, size, size, false) || this.fallbackEnemy(e, cx, cy, r);
     ctx.restore();
+    if (e.def.elite) {
+      ctx.fillStyle = "#ffd45a";
+      const cw = r * 0.5;
+      ctx.fillRect(cx - cw / 2, cy - r - cw * 0.7, cw, cw * 0.4);
+    }
     if (e.hitFlashT > 0) this.flashBlob(cx, cy, r, "rgba(255,255,255,0.6)");
   }
 
@@ -543,6 +689,11 @@ export class Renderer {
     if (b.phase === "telegraph") cy += Math.sin(b.bob * 30) * 1.5;
     ctx.save();
     if (b.enraged) this.flashBlob(cx, cy, r * 1.1, "rgba(255,120,30,0.18)");
+    // heavy-attack telegraph: pulse red during the windup so the player can read it
+    if (b.phase === "telegraph") {
+      const p = 0.5 + 0.5 * Math.sin(this.timeAcc * 26);
+      this.flashBlob(cx, cy, r * (1.0 + p * 0.35), `rgba(255,60,40,${0.2 + p * 0.3})`);
+    }
     this.blitCentered(b.def.sprite, cx, cy, size, size, b.facingX < 0) || this.fallbackBoss(b, cx, cy, r);
     ctx.restore();
     if (b.hitFlashT > 0) this.flashBlob(cx, cy, r, "rgba(255,255,255,0.55)");
@@ -672,10 +823,31 @@ export class Renderer {
   // ----- procedural fallbacks -----
   private fallbackFloor(px: number, py: number, sz: number, style: string) {
     const ctx = this.ctx;
-    ctx.fillStyle = style === "dirt" ? "#5b4a3a" : style === "tile" ? "#3a4452" : "#3b3b46";
+    const col =
+      style === "dirt"
+        ? "#5b4a3a"
+        : style === "tile"
+        ? "#3a4452"
+        : style === "grass"
+        ? "#4a6b3a"
+        : style === "path"
+        ? "#6a6458"
+        : "#3b3b46";
+    ctx.fillStyle = col;
     ctx.fillRect(px, py, sz, sz);
     ctx.fillStyle = "rgba(0,0,0,0.12)";
     ctx.fillRect(px, py, sz, 1);
+  }
+  private fallbackHedge(px: number, py: number, sz: number) {
+    const ctx = this.ctx;
+    ctx.fillStyle = "#4a6b3a";
+    ctx.fillRect(px, py, sz, sz);
+    ctx.fillStyle = "#2f5a2a";
+    ctx.beginPath();
+    ctx.arc(px + sz / 2, py + sz * 0.45, sz * 0.4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#6a4a2a";
+    ctx.fillRect(px + sz * 0.44, py + sz * 0.7, sz * 0.12, sz * 0.3);
   }
   private fallbackWall(px: number, py: number, sz: number) {
     const ctx = this.ctx;

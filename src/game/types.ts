@@ -87,7 +87,7 @@ export type SpawnKind =
   | "lever" // opens a shortcut flag
   | "prop"; // decorative / collidable
 
-export type PickupKind = "heart" | "ember" | "potion";
+export type PickupKind = "heart" | "ember" | "potion" | "token";
 
 export type PropKind =
   | "barrel"
@@ -98,7 +98,15 @@ export type PropKind =
   | "gargoyle"
   | "bars"
   | "torch"
-  | "scroll";
+  | "scroll"
+  // outdoor (Tiny Town) props
+  | "tree"
+  | "bush"
+  | "mushroom"
+  | "sign"
+  | "well"
+  | "stall"
+  | "arch";
 
 export interface SpawnDef {
   kind: SpawnKind;
@@ -137,9 +145,10 @@ export interface ChestContents {
 // Rooms / Regions / Acts
 // ---------------------------------------------------------------------------
 
-export type FloorStyle = "stone" | "dirt" | "tile";
-export type WallStyle = "brick" | "stone";
-export type MusicTrack = "explore" | "boss";
+export type FloorStyle = "stone" | "dirt" | "tile" | "grass" | "path";
+export type WallStyle = "brick" | "stone" | "townstone" | "redbrick" | "wood" | "hedge";
+export type RoomTheme = "dungeon" | "outdoor";
+export type MusicTrack = "explore" | "boss" | "region";
 
 export interface RoomDef {
   id: string;
@@ -155,6 +164,8 @@ export interface RoomDef {
   layout: string[];
   floor: FloorStyle;
   wall: WallStyle;
+  /** drives decorative-tile + prop sprite choice (dungeon vs outdoor). */
+  theme?: RoomTheme;
   doors: DoorDef[];
   spawns: SpawnDef[];
   /** Region-space grid coordinate, used for the minimap. */
@@ -171,6 +182,8 @@ export interface RegionDef {
   rooms: RoomDef[];
   startRoomId: string;
   startDoorId?: string;
+  /** minimap accent color for this region. */
+  accent?: string;
 }
 
 export interface WorldAct {
@@ -196,7 +209,11 @@ export type EnemyBehavior =
   | "swarm" // fast, light, erratic chaser
   | "patroller" // patrols, charges when player in range
   | "shooter" // keeps distance, fires projectiles
-  | "tank"; // slow, high health, telegraphed lunge
+  | "tank" // slow, high health, telegraphed lunge
+  // --- Round 2 behaviors ---
+  | "turret" // stationary; fires telegraphed volleys
+  | "charger" // long telegraphed windup, then a fast straight charge
+  | "splitter"; // on death, splits into smaller swarmers
 
 export interface EnemyDef {
   id: string;
@@ -220,6 +237,10 @@ export interface EnemyDef {
   scale?: number;
   /** chance [0..1] to drop a heart on death. */
   heartChance?: number;
+  /** elite/champion: tougher, glows, drops more. */
+  elite?: boolean;
+  /** splitter: what it spawns on death. */
+  splitsInto?: { ref: string; count: number };
 }
 
 export interface BossAttackPattern {
@@ -297,4 +318,11 @@ export interface SaveData {
   loreDiscovered: string[];
   checkpointId: string | null;
   difficultyMode: "normal" | "hard";
+  // ---- Round 2 expansion hooks (older saves auto-initialize these) ----
+  unlockedRegions: string[];
+  discoveredRegions: string[];
+  completedMiniRegion: boolean;
+  round2VisitedWorldGate: boolean;
+  optionalEliteDefeated: boolean;
+  audioModeVersion: number;
 }

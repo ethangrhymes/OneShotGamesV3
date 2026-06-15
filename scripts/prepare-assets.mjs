@@ -138,6 +138,45 @@ const tileSelection = {
   "staff.png": 130,
 };
 
+// ----- Tile selection — pack 2: Tiny Town -----------------------------------
+// Round 2 outdoor region "The Rootward Road". Same 16x16 scale/style as Tiny
+// Dungeon (so collision/combat readability is unchanged), but a distinct
+// overground identity: cursed dying woods, a swallowed hamlet, a broken
+// causeway. Keys are prefixed "tt_" so they never clash with Tiny Dungeon keys.
+const TINY_TOWN = (idx) =>
+  bundle
+    ? path.join(bundle, "2D assets", "Tiny Town", "Tiles", `tile_${String(idx).padStart(4, "0")}.png`)
+    : null;
+
+const townSelection = {
+  "tt_grass.png": 0,
+  "tt_grass_b.png": 1,
+  "tt_grass_flower.png": 43,
+  "tt_path.png": 48, // cobblestone path
+  "tt_dirt.png": 41,
+  "tt_tree.png": 9, // autumn/dying tree — the "rootward" look
+  "tt_tree2.png": 21,
+  "tt_tree_green.png": 4,
+  "tt_bush.png": 17,
+  "tt_mushroom.png": 29,
+  "tt_fence.png": 80,
+  "tt_wall_stone.png": 60,
+  "tt_wall_red.png": 64,
+  "tt_wall_wood.png": 72,
+  "tt_roof.png": 67,
+  "tt_house.png": 75, // building face with doorway
+  "tt_door.png": 86,
+  "tt_bridge.png": 100, // wooden bridge planks
+  "tt_arch.png": 112, // stone causeway arch — the sealed Act II gate
+  "tt_sign.png": 83, // hanging sign — outdoor lore
+  "tt_stall.png": 104,
+  "tt_barrel.png": 107,
+  "tt_crate.png": 103,
+  "tt_well.png": 125,
+  "tt_chest.png": 131,
+  "tt_relic.png": 94, // gold ring — the Bell Token relic
+};
+
 // ----- Audio selection -------------------------------------------------------
 // destFile -> ordered list of candidate source relative paths (under <bundle>).
 // First existing candidate wins; if none exist the game uses its Web Audio synth.
@@ -171,6 +210,12 @@ const audioSelection = {
   "select.ogg": ["Audio/Interface Sounds/Audio/select_001.ogg", "Audio/Interface Sounds/Audio/select_002.ogg"],
   "music_explore.ogg": ["Audio/Music Loops/Loops/Infinite Descent.ogg"],
   "music_boss.ogg": ["Audio/Music Loops/Loops/Sad Descent.ogg", "Audio/Music Loops/Retro/Retro Mystic.ogg"],
+  // colder, wider ambience for the outdoor Rootward Road region
+  "music_region2.ogg": [
+    "Audio/Music Loops/Loops/Flowing Rocks.ogg",
+    "Audio/Music Loops/Loops/Sad Town.ogg",
+    "Audio/Music Loops/Retro/Retro Mystic.ogg",
+  ],
 };
 
 // ----- run -------------------------------------------------------------------
@@ -188,7 +233,10 @@ function firstExisting(candidates) {
 
 const manifest = {
   generatedBy: "scripts/prepare-assets.mjs",
-  artDirection: "Kenney Tiny Dungeon (16x16 top-down), CC0",
+  artDirection:
+    "16x16 top-down, CC0. Act I (The Sunken Keep) = Kenney Tiny Dungeon. " +
+    "Round 2 region (The Rootward Road) = Kenney Tiny Town (tt_* keys). " +
+    "Two cohesive same-scale packs used as distinct cursed regions.",
   bundleFound: !!bundle,
   bundlePath: bundle ? path.basename(bundle) : null,
   tileSize: 16,
@@ -219,6 +267,21 @@ if (!bundle) {
       fs.copyFileSync(src, path.join(tilesOut, dest));
       manifest.tiles[dest] = {
         pack: "2D assets/Tiny Dungeon",
+        tile: `tile_${String(idx).padStart(4, "0")}.png`,
+        index: idx,
+      };
+      copiedTiles++;
+    } else {
+      manifest.missing.push({ category: "tile", dest, wantedIndex: idx });
+    }
+  }
+
+  for (const [dest, idx] of Object.entries(townSelection)) {
+    const src = TINY_TOWN(idx);
+    if (src && fs.existsSync(src)) {
+      fs.copyFileSync(src, path.join(tilesOut, dest));
+      manifest.tiles[dest] = {
+        pack: "2D assets/Tiny Town",
         tile: `tile_${String(idx).padStart(4, "0")}.png`,
         index: idx,
       };

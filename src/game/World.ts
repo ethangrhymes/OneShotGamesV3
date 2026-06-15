@@ -12,13 +12,30 @@ import type { DoorDef, RoomDef, WorldAct } from "./types";
 export class World {
   act: WorldAct;
   private roomsById = new Map<string, RoomDef>();
+  private regionOfRoom = new Map<string, string>();
   current!: Room;
 
   constructor(act: WorldAct) {
     this.act = act;
     for (const region of act.regions) {
-      for (const r of region.rooms) this.roomsById.set(r.id, r);
+      for (const r of region.rooms) {
+        this.roomsById.set(r.id, r);
+        this.regionOfRoom.set(r.id, region.id);
+      }
     }
+  }
+
+  hasRoom(id: string): boolean {
+    return this.roomsById.has(id);
+  }
+
+  region(regionId: string) {
+    return this.act.regions.find((r) => r.id === regionId);
+  }
+
+  regionOf(roomId: string) {
+    const id = this.regionOfRoom.get(roomId);
+    return id ? this.region(id) : undefined;
   }
 
   get startRoomId(): string {
