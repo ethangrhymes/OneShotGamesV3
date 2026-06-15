@@ -1,0 +1,834 @@
+/**
+ * Renderer.ts — high-DPI responsive canvas, a follow-and-clamp camera, world
+ * tile/entity/effect drawing (Kenney sprites with procedural fallbacks for every
+ * category), and the small particle/slash effect classes. UI.ts draws the HUD
+ * and screens on top using the same ctx in CSS-pixel space.
+ */
+import { Balance, TILE } from "./Balance";
+import type { AssetManager } from "./AssetManager";
+import { Room, type Cell } from "./Dungeon";
+import type { Boss, Enemy, Hazard, Interactable, Player, Projectile } from "./Entities";
+import type { RunState } from "./Progression";
+
+// ---- effects ---------------------------------------------------------------
+export class Particle {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  life: number;
+  maxLife: number;
+  size: number;
+  color: string;
+  drag: number;
+  constructor(x: number, y: number, vx: number, vy: number, life: number, size: number, color: string, drag = 2.5) {
+    this.x = x;
+    this.y = y;
+    this.vx = vx;
+    this.vy = vy;
+    this.life = life;
+    this.maxLife = life;
+    this.size = size;
+    this.color = color;
+    this.drag = drag;
+  }
+  get alive() {
+    return this.life > 0;
+  }
+  update(dt: number) {
+    this.life -= dt;
+    this.x += this.vx * dt;
+    this.y += this.vy * dt;
+    const d = Math.pow(0.5, dt * this.drag);
+    this.vx *= d;
+    this.vy *= d;
+  }
+}
+
+export class Slash {
+  x: number;
+  y: number;
+  angle: number;
+  reach: number;
+  t = 0;
+  dur: number;
+  color: string;
+  constructor(x: number, y: number, angle: number, reach: number, dur: number, color = "#fff4d6") {
+    this.x = x;
+    this.y = y;
+    this.angle = angle;
+    this.reach = reach;
+    this.dur = dur;
+    this.color = color;
+  }
+  get alive() {
+    return this.t < this.dur;
+  }
+  update(dt: number) {
+    this.t += dt;
+  }
+}
+
+export interface SceneView {
+  room: Room;
+  player: Player;
+  enemies: Enemy[];
+  boss: Boss | null;
+  projectiles: Projectile[];
+  hazards: Hazard[];
+  interactables: Interactable[];
+  particles: Particle[];
+  slashes: Slash[];
+  run: RunState;
+  nearInteractable: Interactable | null;
+  time: number;
+  fade: number; // 0 transparent .. 1 black (room transitions)
+}
+
+const FLOOR_KEYS: Record<number, string> = { 0: "floor", 1: "floor_b", 2: "floor_c", 3: "floor_tile" };
+
+export class Renderer {
+  canvas: HTMLCanvasElement;
+  ctx: CanvasRenderingContext2D;
+  assets: AssetManager;
+  dpr = 1;
+  viewW = 800;
+  viewH = 600;
+  scale = 3;
+
+  camX = 0;
+  camY = 0;
+  private shakeAmt = 0;
+  private shakeX = 0;
+  private shakeY = 0;
+  private camInit = false;
+
+  constructor(canvas: HTMLCanvasElement, assets: AssetManager) {
+    this.canvas = canvas;
+    this.assets = assets;
+    const ctx = canvas.getContext("2d", { alpha: false });
+    if (!ctx) throw new Error("2D canvas not supported");
+    this.ctx = ctx;
+    this.resize();
+  }
+
+  resize() {
+    this.dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    this.viewW = w;
+    this.viewH = h;
+    this.canvas.style.width = w + "px";
+    this.canvas.style.height = h + "px";
+    this.canvas.width = Math.floor(w * this.dpr);
+    this.canvas.height = Math.floor(h * this.dpr);
+    // choose a zoom that shows a readable number of tiles on the short axis
+    const short = Math.min(w, h);
+    let s = short / (9.5 * TILE);
+    s = Math.max(2.4, Math.min(5, s));
+    this.scale = Math.round(s * 2) / 2;
+  }
+
+  shake(amount: number) {
+    this.shakeAmt = Math.max(this.shakeAmt, amount);
+  }
+
+  updateCamera(dt: number, player: Player, room: Room) {
+    const viewWUnits = this.viewW / this.scale;
+    const viewHUnits = this.viewH / this.scale;
+    let tx: number;
+    let ty: number;
+    if (room.pxW <= viewWUnits) tx = (room.pxW - viewWUnits) / 2;
+    else tx = Math.max(0, Math.min(player.x - viewWUnits / 2, room.pxW - viewWUnits));
+    if (room.pxH <= viewHUnits) ty = (room.pxH - viewHUnits) / 2;
+    else ty = Math.max(0, Math.min(player.y - viewHUnits / 2, room.pxH - viewHUnits));
+
+    if (!this.camInit) {
+      this.camX = tx;
+      this.camY = ty;
+      this.camInit = true;
+    } else {
+      const k = 1 - Math.pow(1 - Balance.camera.lerp, dt * 60);
+      this.camX += (tx - this.camX) * k;
+      this.camY += (ty - this.camY) * k;
+    }
+    // shake
+    if (this.shakeAmt > 0.05) {
+      this.shakeX = (Math.random() * 2 - 1) * this.shakeAmt;
+      this.shakeY = (Math.random() * 2 - 1) * this.shakeAmt;
+      this.shakeAmt -= dt * Balance.camera.shakeDecay * (1 + this.shakeAmt * 0.1);
+      if (this.shakeAmt < 0) this.shakeAmt = 0;
+    } else {
+      this.shakeX = this.shakeY = 0;
+    }
+  }
+
+  resetCamera() {
+    this.camInit = false;
+  }
+
+  private sx(wx: number): number {
+    return (wx - this.camX) * this.scale + this.shakeX;
+  }
+  private sy(wy: number): number {
+    return (wy - this.camY) * this.scale + this.shakeY;
+  }
+
+  // ----- frame -----
+  beginFrame() {
+    const ctx = this.ctx;
+    ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    ctx.imageSmoothingEnabled = false;
+    // dark ambient background (so out-of-room area reads as surrounding dark)
+    ctx.fillStyle = "#0b0910";
+    ctx.fillRect(0, 0, this.viewW, this.viewH);
+  }
+
+  drawScene(view: SceneView) {
+    this.timeAcc = view.time;
+    this.drawTiles(view.room, view.time);
+    this.drawHazardTiles(view.room, view.time);
+    // shadows pass for entities (cheap depth)
+    this.drawInteractables(view, "under");
+    this.drawDoors(view.room);
+
+    // sort drawables by y for simple depth
+    this.drawInteractables(view, "over");
+
+    // hazards (boss AoE)
+    for (const h of view.hazards) this.drawHazard(h);
+
+    // entities
+    const drawables: { y: number; fn: () => void }[] = [];
+    for (const e of view.enemies) if (e.alive) drawables.push({ y: e.y, fn: () => this.drawEnemy(e) });
+    if (view.boss && view.boss.alive) {
+      const b = view.boss;
+      drawables.push({ y: b.y, fn: () => this.drawBoss(b) });
+    }
+    drawables.push({ y: view.player.y, fn: () => this.drawPlayer(view.player, view.time) });
+    drawables.sort((a, b) => a.y - b.y);
+    for (const d of drawables) d.fn();
+
+    for (const p of view.projectiles) if (p.alive) this.drawProjectile(p);
+    for (const s of view.slashes) this.drawSlash(s, view.player);
+    for (const p of view.particles) if (p.alive) this.drawParticle(p);
+
+    // near-interactable prompt ring
+    if (view.nearInteractable) this.drawPrompt(view.nearInteractable);
+
+    // low-health vignette
+    const hpFrac = view.run.hp / view.run.maxHp;
+    if (hpFrac <= 0.34) {
+      const pulse = 0.18 + 0.12 * Math.sin(view.time * 6);
+      this.vignette(`rgba(150,20,20,${(0.34 - hpFrac) / 0.34 * pulse})`);
+    } else {
+      this.vignette("rgba(0,0,0,0.28)");
+    }
+
+    if (view.fade > 0) {
+      this.ctx.fillStyle = `rgba(6,5,9,${view.fade})`;
+      this.ctx.fillRect(0, 0, this.viewW, this.viewH);
+    }
+  }
+
+  private vignette(color: string) {
+    const ctx = this.ctx;
+    const g = ctx.createRadialGradient(
+      this.viewW / 2,
+      this.viewH / 2,
+      Math.min(this.viewW, this.viewH) * 0.32,
+      this.viewW / 2,
+      this.viewH / 2,
+      Math.max(this.viewW, this.viewH) * 0.7
+    );
+    g.addColorStop(0, "rgba(0,0,0,0)");
+    g.addColorStop(1, color);
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, this.viewW, this.viewH);
+  }
+
+  // ----- tiles -----
+  private drawTiles(room: Room, time: number) {
+    const ctx = this.ctx;
+    const ts = TILE * this.scale;
+    const startTx = Math.max(0, Math.floor(this.camX / TILE));
+    const endTx = Math.min(room.w - 1, Math.ceil((this.camX + this.viewW / this.scale) / TILE));
+    const startTy = Math.max(0, Math.floor(this.camY / TILE));
+    const endTy = Math.min(room.h - 1, Math.ceil((this.camY + this.viewH / this.scale) / TILE));
+
+    for (let ty = startTy; ty <= endTy; ty++) {
+      for (let tx = startTx; tx <= endTx; tx++) {
+        const cell = room.cellAt(tx, ty)!;
+        if (cell.kind === "void") continue;
+        const px = Math.round(this.sx(tx * TILE));
+        const py = Math.round(this.sy(ty * TILE));
+        const sz = Math.ceil(ts) + 1;
+        this.drawCell(cell, room, px, py, sz, tx, ty, time);
+      }
+    }
+  }
+
+  private drawCell(cell: Cell, room: Room, px: number, py: number, sz: number, tx: number, ty: number, time: number) {
+    const ctx = this.ctx;
+    if (cell.kind === "floor") {
+      const key = FLOOR_KEYS[cell.variant] ?? (room.def.floor === "dirt" ? "floor_dirt" : room.def.floor === "tile" ? "floor_tile" : "floor");
+      const baseKey =
+        room.def.floor === "dirt"
+          ? cell.variant === 1 ? "floor_dirt_b" : cell.variant === 2 ? "floor_dirt_c" : cell.variant === 3 ? "floor_tile" : "floor_dirt"
+          : room.def.floor === "tile"
+          ? "floor_tile"
+          : key;
+      this.blit(baseKey, px, py, sz, sz) || this.fallbackFloor(px, py, sz, room.def.floor);
+    } else if (cell.kind === "wall") {
+      const wk = room.def.wall === "stone" ? "wall_stone" : cell.variant === 1 ? "wall_cracked" : "wall";
+      this.blit(wk, px, py, sz, sz) || this.fallbackWall(px, py, sz);
+    } else if (cell.kind === "gargoyle") {
+      this.blit("wall_stone", px, py, sz, sz) || this.fallbackWall(px, py, sz);
+      this.blit("gargoyle", px, py, sz, sz) ||
+        (() => {
+          ctx.fillStyle = "#3a4048";
+          ctx.fillRect(px + sz * 0.2, py + sz * 0.2, sz * 0.6, sz * 0.6);
+        })();
+    }
+  }
+
+  private drawHazardTiles(room: Room, time: number) {
+    const ctx = this.ctx;
+    const ts = Math.ceil(TILE * this.scale) + 1;
+    for (let ty = 0; ty < room.h; ty++) {
+      for (let tx = 0; tx < room.w; tx++) {
+        const c = room.cellAt(tx, ty)!;
+        if (c.kind !== "hazard") continue;
+        const px = Math.round(this.sx(tx * TILE));
+        const py = Math.round(this.sy(ty * TILE));
+        // floor under
+        this.blit(room.def.floor === "dirt" ? "floor_dirt" : "floor", px, py, ts, ts) || this.fallbackFloor(px, py, ts, room.def.floor);
+        // spikes (use trap sprite; pulse to telegraph)
+        const pulse = 0.5 + 0.5 * Math.sin(time * 3 + tx + ty);
+        ctx.globalAlpha = 0.55 + 0.45 * pulse;
+        this.blit("trap", px, py, ts, ts) ||
+          (() => {
+            ctx.fillStyle = "#caa14a";
+            ctx.fillRect(px + ts * 0.15, py + ts * 0.15, ts * 0.7, ts * 0.7);
+          })();
+        ctx.globalAlpha = 1;
+      }
+    }
+  }
+
+  private drawDoors(room: Room) {
+    const ctx = this.ctx;
+    const ts = Math.ceil(TILE * this.scale) + 1;
+    for (const d of room.doors) {
+      const px = Math.round(this.sx(d.def.tx * TILE));
+      const py = Math.round(this.sy(d.def.ty * TILE));
+      if (d.open) {
+        this.blit("door_open", px, py, ts, ts);
+      } else {
+        // closed: gate look for boss/shortcut/gate-style, wood door otherwise
+        const gate = d.def.type === "bossGate" || d.def.type === "shortcut";
+        const key = gate ? (d.def.edge === "n" || d.def.edge === "s" ? "gate" : "gate_v") : "door_closed";
+        if (!this.blit(key, px, py, ts, ts)) {
+          ctx.fillStyle = gate ? "#6b7178" : "#5a3a22";
+          ctx.fillRect(px, py, ts, ts);
+        }
+      }
+    }
+  }
+
+  // ----- interactables -----
+  private drawInteractables(view: SceneView, layer: "under" | "over") {
+    for (const it of view.interactables) {
+      const under = it.kind === "prop" && (it.prop === "torch" || it.prop === "fence" || it.prop === "bars");
+      if (layer === "under" && !under) continue;
+      if (layer === "over" && under) continue;
+      this.drawInteractable(it, view.time);
+    }
+  }
+
+  private drawInteractable(it: Interactable, time: number) {
+    const ctx = this.ctx;
+    const ts = Math.ceil(TILE * this.scale) + 1;
+    const px = Math.round(this.sx(it.x - TILE / 2));
+    const py = Math.round(this.sy(it.y - TILE / 2));
+    const bob = Math.sin(time * 3 + it.bob) * 1.5 * this.scale * 0.3;
+
+    switch (it.kind) {
+      case "checkpoint": {
+        // torch/brazier with glow
+        const glow = 0.5 + 0.5 * Math.sin(time * 5 + it.bob);
+        ctx.save();
+        ctx.globalCompositeOperation = "lighter";
+        ctx.fillStyle = `rgba(255,150,40,${0.12 + glow * 0.12})`;
+        ctx.beginPath();
+        ctx.arc(this.sx(it.x), this.sy(it.y), ts * (1.5 + glow * 0.25), 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+        this.blit("torch", px, py, ts, ts) || this.fallbackTorch(px, py, ts);
+        break;
+      }
+      case "lore":
+      case "prop": {
+        const key = this.propKey(it);
+        if (key) this.blit(key, px, py, ts, ts) || this.fallbackProp(it, px, py, ts);
+        if (it.kind === "lore" && !it.used) {
+          this.softGlow(it.x, it.y, ts * 0.9, `rgba(120,180,255,0.18)`);
+        }
+        break;
+      }
+      case "chest": {
+        const key = it.opened ? "chest_open" : "chest_closed";
+        this.blit(key, px, py, ts, ts) || this.fallbackChest(px, py, ts, it.opened);
+        if (!it.opened) this.softGlow(it.x, it.y, ts * 0.8, "rgba(255,210,90,0.16)");
+        break;
+      }
+      case "lever": {
+        this.blit("anvil", px, py, ts, ts) || this.fallbackProp(it, px, py, ts);
+        if (!it.used) this.softGlow(it.x, it.y, ts * 0.8, "rgba(120,220,160,0.2)");
+        break;
+      }
+      case "seal": {
+        const yy = py + bob;
+        this.softGlow(it.x, it.y, ts, "rgba(255,170,60,0.25)");
+        this.blit("ring", px, Math.round(yy), ts, ts) || this.fallbackRing(px, Math.round(yy), ts);
+        break;
+      }
+      case "upgrade": {
+        const yy = py + bob;
+        this.softGlow(it.x, it.y, ts * 1.1, "rgba(120,200,255,0.25)");
+        const key = this.upgradeKey(it.ref);
+        this.blit(key, px, Math.round(yy), ts, ts) || this.fallbackRing(px, Math.round(yy), ts);
+        break;
+      }
+      case "key": {
+        const yy = py + bob;
+        this.fallbackKey(px, Math.round(yy), ts);
+        break;
+      }
+      case "pickup": {
+        const yy = py + bob;
+        if (it.pickup === "heart") this.fallbackHeart(this.sx(it.x), this.sy(it.y) + bob, ts * 0.42, true);
+        else if (it.pickup === "ember") this.fallbackEmber(this.sx(it.x), this.sy(it.y) + bob, ts * 0.3);
+        else if (it.pickup === "potion") {
+          this.blit("potion_green", px, Math.round(yy), ts, ts) || this.fallbackPotion(px, Math.round(yy), ts);
+        }
+        break;
+      }
+    }
+  }
+
+  private propKey(it: Interactable): string {
+    if (it.kind === "lore") return "scroll";
+    switch (it.prop) {
+      case "barrel":
+        return "barrel";
+      case "crate":
+        return "crate";
+      case "statue":
+        return "statue";
+      case "anvil":
+        return "anvil";
+      case "fence":
+        return "fence";
+      case "gargoyle":
+        return "gargoyle";
+      case "bars":
+        return "bars";
+      case "torch":
+        return "torch";
+      default:
+        return "barrel";
+    }
+  }
+  private upgradeKey(ref?: string): string {
+    if (ref === "heartVessel") return "potion_red";
+    if (ref === "wardensEdge") return "sword";
+    if (ref === "swiftBoots") return "potion_blue";
+    return "ring";
+  }
+
+  private softGlow(wx: number, wy: number, r: number, color: string) {
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    const g = ctx.createRadialGradient(this.sx(wx), this.sy(wy), 0, this.sx(wx), this.sy(wy), r);
+    g.addColorStop(0, color);
+    g.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(this.sx(wx), this.sy(wy), r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  private drawPrompt(it: Interactable) {
+    const ctx = this.ctx;
+    const x = this.sx(it.x);
+    const y = this.sy(it.y) - TILE * this.scale * 0.9;
+    ctx.save();
+    ctx.fillStyle = "rgba(20,16,28,0.85)";
+    ctx.strokeStyle = "rgba(243,233,210,0.6)";
+    ctx.lineWidth = 2;
+    const r = 9;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = "#f3e9d2";
+    ctx.font = "bold 11px Trebuchet MS, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("E", x, y + 0.5);
+    ctx.restore();
+  }
+
+  // ----- entities -----
+  private entityShadow(wx: number, wy: number, r: number) {
+    const ctx = this.ctx;
+    ctx.fillStyle = "rgba(0,0,0,0.28)";
+    ctx.beginPath();
+    ctx.ellipse(this.sx(wx), this.sy(wy) + r * 0.5, r * 0.9, r * 0.45, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  private drawPlayer(p: Player, time: number) {
+    const ctx = this.ctx;
+    const size = TILE * this.scale;
+    const r = size * 0.5;
+    this.entityShadow(p.x, p.y, r * 0.8);
+    let squashY = 1;
+    let squashX = 1;
+    if (p.dashing) {
+      squashX = 1.18;
+      squashY = 0.86;
+    } else {
+      const b = Math.sin(p.bob) * 0.06;
+      squashY = 1 + b;
+      squashX = 1 - b;
+    }
+    const drawW = size * squashX;
+    const drawH = size * squashY;
+    const cx = this.sx(p.x);
+    const cy = this.sy(p.y);
+    ctx.save();
+    if (p.invulnerable && Math.floor(time * 20) % 2 === 0) ctx.globalAlpha = 0.5;
+    this.blitCentered("player", cx, cy - (drawH - size) / 2, drawW, drawH, p.facingX < 0) ||
+      this.fallbackPlayer(cx, cy, r);
+    ctx.restore();
+    if (p.hurtFlashT > 0) this.flashBlob(cx, cy, r, "rgba(255,80,80,0.5)");
+  }
+
+  private drawEnemy(e: Enemy) {
+    const ctx = this.ctx;
+    const size = TILE * this.scale * (e.def.scale ?? 1);
+    const r = size * 0.5;
+    this.entityShadow(e.x, e.y, r * 0.8);
+    const cx = this.sx(e.x);
+    const cy = this.sy(e.y);
+    const facingLeft = this.assets ? false : false;
+    ctx.save();
+    this.blitCentered(e.def.sprite, cx, cy, size, size, false) || this.fallbackEnemy(e, cx, cy, r);
+    ctx.restore();
+    if (e.hitFlashT > 0) this.flashBlob(cx, cy, r, "rgba(255,255,255,0.6)");
+  }
+
+  private drawBoss(b: Boss) {
+    const ctx = this.ctx;
+    const size = TILE * this.scale * b.def.scale;
+    const r = size * 0.5;
+    this.entityShadow(b.x, b.y, r * 0.9);
+    const cx = this.sx(b.x);
+    let cy = this.sy(b.y);
+    // intro rise + telegraph shiver
+    if (b.phase === "telegraph") cy += Math.sin(b.bob * 30) * 1.5;
+    ctx.save();
+    if (b.enraged) this.flashBlob(cx, cy, r * 1.1, "rgba(255,120,30,0.18)");
+    this.blitCentered(b.def.sprite, cx, cy, size, size, b.facingX < 0) || this.fallbackBoss(b, cx, cy, r);
+    ctx.restore();
+    if (b.hitFlashT > 0) this.flashBlob(cx, cy, r, "rgba(255,255,255,0.55)");
+  }
+
+  private drawProjectile(p: Projectile) {
+    const ctx = this.ctx;
+    const x = this.sx(p.x);
+    const y = this.sy(p.y);
+    const r = p.radius * this.scale;
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    const col = p.fromBoss ? "#ff9a3c" : "#b48cff";
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r * 2.2);
+    g.addColorStop(0, col);
+    g.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(x, y, r * 2.2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+    ctx.fillStyle = "#fff";
+    ctx.beginPath();
+    ctx.arc(x, y, r * 0.8, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  private drawHazard(h: Hazard) {
+    const ctx = this.ctx;
+    const x = this.sx(h.x);
+    const y = this.sy(h.y);
+    const r = h.radius * this.scale;
+    if (h.t < h.telegraph) {
+      // warning: pulsing dashed ring at the exact danger size, filling up
+      const p = h.telegraphProgress;
+      ctx.save();
+      ctx.fillStyle = `rgba(255,80,40,${0.06 + p * 0.18})`;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = `rgba(255,120,50,${0.5 + 0.4 * Math.sin(this.timeAcc * 22)})`;
+      ctx.lineWidth = 2 + p * 2;
+      ctx.setLineDash([7, 5]);
+      ctx.beginPath();
+      ctx.arc(x, y, r * (0.4 + 0.6 * p), 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    } else {
+      // impact flash
+      ctx.save();
+      ctx.globalCompositeOperation = "lighter";
+      const g = ctx.createRadialGradient(x, y, r * 0.3, x, y, r);
+      g.addColorStop(0, "rgba(255,200,90,0.55)");
+      g.addColorStop(0.7, "rgba(255,90,30,0.3)");
+      g.addColorStop(1, "rgba(255,60,20,0.02)");
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+  private timeAcc = 0;
+
+  private drawSlash(s: Slash, p: Player) {
+    const ctx = this.ctx;
+    const prog = s.t / s.dur;
+    const x = this.sx(p.x);
+    const y = this.sy(p.y);
+    const reach = s.reach * this.scale;
+    const arc = Balance.player.attackArc;
+    const sweep = s.angle - arc / 2 + arc * prog;
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    ctx.strokeStyle = `rgba(255,244,214,${(1 - prog) * 0.9})`;
+    ctx.lineWidth = 3 + (1 - prog) * 3;
+    ctx.beginPath();
+    ctx.arc(x, y, reach, sweep - 0.5, sweep + 0.5);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  private drawParticle(p: Particle) {
+    const ctx = this.ctx;
+    const a = Math.max(0, p.life / p.maxLife);
+    const x = this.sx(p.x);
+    const y = this.sy(p.y);
+    const sz = p.size * this.scale * (0.4 + a * 0.6);
+    ctx.globalAlpha = a;
+    ctx.fillStyle = p.color;
+    ctx.fillRect(x - sz / 2, y - sz / 2, sz, sz);
+    ctx.globalAlpha = 1;
+  }
+
+  private flashBlob(x: number, y: number, r: number, color: string) {
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(x, y, r * 0.7, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // ----- blit helpers -----
+  /** draw a sprite at top-left (px,py). returns false if asset missing. */
+  private blit(key: string, px: number, py: number, w: number, h: number): boolean {
+    const img = this.assets.img(key);
+    if (!img) return false;
+    this.ctx.drawImage(img, px, py, w, h);
+    return true;
+  }
+
+  private blitCentered(key: string, cx: number, cy: number, w: number, h: number, flipX: boolean): boolean {
+    const img = this.assets.img(key);
+    if (!img) return false;
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.translate(Math.round(cx), Math.round(cy));
+    if (flipX) ctx.scale(-1, 1);
+    ctx.drawImage(img, Math.round(-w / 2), Math.round(-h / 2), Math.ceil(w), Math.ceil(h));
+    ctx.restore();
+    return true;
+  }
+
+  // ----- procedural fallbacks -----
+  private fallbackFloor(px: number, py: number, sz: number, style: string) {
+    const ctx = this.ctx;
+    ctx.fillStyle = style === "dirt" ? "#5b4a3a" : style === "tile" ? "#3a4452" : "#3b3b46";
+    ctx.fillRect(px, py, sz, sz);
+    ctx.fillStyle = "rgba(0,0,0,0.12)";
+    ctx.fillRect(px, py, sz, 1);
+  }
+  private fallbackWall(px: number, py: number, sz: number) {
+    const ctx = this.ctx;
+    ctx.fillStyle = "#6a4a36";
+    ctx.fillRect(px, py, sz, sz);
+    ctx.fillStyle = "rgba(0,0,0,0.25)";
+    ctx.fillRect(px, py + sz - 2, sz, 2);
+  }
+  private fallbackTorch(px: number, py: number, sz: number) {
+    const ctx = this.ctx;
+    ctx.fillStyle = "#6a4a36";
+    ctx.fillRect(px + sz * 0.42, py + sz * 0.4, sz * 0.16, sz * 0.5);
+    ctx.fillStyle = "#ff8a2c";
+    ctx.beginPath();
+    ctx.arc(px + sz * 0.5, py + sz * 0.32, sz * 0.18, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  private fallbackProp(it: Interactable, px: number, py: number, sz: number) {
+    const ctx = this.ctx;
+    ctx.fillStyle = it.kind === "lore" ? "#d8c38a" : "#7a5a3a";
+    ctx.fillRect(px + sz * 0.18, py + sz * 0.18, sz * 0.64, sz * 0.64);
+  }
+  private fallbackChest(px: number, py: number, sz: number, opened?: boolean) {
+    const ctx = this.ctx;
+    ctx.fillStyle = "#7a4a22";
+    ctx.fillRect(px + sz * 0.16, py + sz * 0.3, sz * 0.68, sz * 0.5);
+    ctx.fillStyle = opened ? "#2a1a0e" : "#caa14a";
+    ctx.fillRect(px + sz * 0.16, py + sz * 0.3, sz * 0.68, sz * 0.14);
+  }
+  private fallbackRing(px: number, py: number, sz: number) {
+    const ctx = this.ctx;
+    ctx.strokeStyle = "#d8d2c0";
+    ctx.lineWidth = sz * 0.12;
+    ctx.beginPath();
+    ctx.arc(px + sz / 2, py + sz / 2, sz * 0.28, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  private fallbackPotion(px: number, py: number, sz: number) {
+    const ctx = this.ctx;
+    ctx.fillStyle = "#5fd08a";
+    ctx.fillRect(px + sz * 0.34, py + sz * 0.28, sz * 0.32, sz * 0.46);
+  }
+  private fallbackPlayer(cx: number, cy: number, r: number) {
+    const ctx = this.ctx;
+    ctx.fillStyle = "#3f9b54";
+    ctx.beginPath();
+    ctx.arc(cx, cy, r * 0.7, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#f0d8b0";
+    ctx.beginPath();
+    ctx.arc(cx, cy - r * 0.2, r * 0.32, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  private fallbackEnemy(e: Enemy, cx: number, cy: number, r: number) {
+    const ctx = this.ctx;
+    ctx.fillStyle = e.def.fallbackColor;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r * 0.7, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#1a1118";
+    ctx.fillRect(cx - r * 0.28, cy - r * 0.15, r * 0.18, r * 0.18);
+    ctx.fillRect(cx + r * 0.1, cy - r * 0.15, r * 0.18, r * 0.18);
+  }
+  private fallbackBoss(b: Boss, cx: number, cy: number, r: number) {
+    const ctx = this.ctx;
+    ctx.fillStyle = b.def.fallbackColor;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r * 0.78, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#ffd27a";
+    ctx.fillRect(cx - r * 0.3, cy - r * 0.2, r * 0.2, r * 0.2);
+    ctx.fillRect(cx + r * 0.1, cy - r * 0.2, r * 0.2, r * 0.2);
+  }
+
+  // --- always-procedural HUD-style icons (no Kenney tile exists) ---
+  fallbackHeart(cx: number, cy: number, s: number, glow = false) {
+    const ctx = this.ctx;
+    if (glow) this.flashBlob(cx, cy, s * 1.6, "rgba(255,80,90,0.2)");
+    ctx.fillStyle = "#e23b4e";
+    ctx.beginPath();
+    ctx.moveTo(cx, cy + s * 0.7);
+    ctx.bezierCurveTo(cx - s * 1.3, cy - s * 0.4, cx - s * 0.4, cy - s * 1.1, cx, cy - s * 0.35);
+    ctx.bezierCurveTo(cx + s * 0.4, cy - s * 1.1, cx + s * 1.3, cy - s * 0.4, cx, cy + s * 0.7);
+    ctx.fill();
+  }
+  fallbackHeartEmpty(cx: number, cy: number, s: number) {
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.strokeStyle = "rgba(226,59,78,0.55)";
+    ctx.lineWidth = 1.5;
+    ctx.fillStyle = "rgba(40,20,28,0.5)";
+    ctx.beginPath();
+    ctx.moveTo(cx, cy + s * 0.7);
+    ctx.bezierCurveTo(cx - s * 1.3, cy - s * 0.4, cx - s * 0.4, cy - s * 1.1, cx, cy - s * 0.35);
+    ctx.bezierCurveTo(cx + s * 0.4, cy - s * 1.1, cx + s * 1.3, cy - s * 0.4, cx, cy + s * 0.7);
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+  }
+  fallbackHeartHalf(cx: number, cy: number, s: number) {
+    const ctx = this.ctx;
+    this.fallbackHeartEmpty(cx, cy, s);
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(cx - s * 1.4, cy - s * 1.4, s * 1.4, s * 2.8);
+    ctx.clip();
+    this.fallbackHeart(cx, cy, s);
+    ctx.restore();
+  }
+  fallbackEmber(cx: number, cy: number, s: number) {
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    ctx.fillStyle = "rgba(255,170,60,0.4)";
+    ctx.beginPath();
+    ctx.arc(cx, cy, s * 1.6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+    ctx.fillStyle = "#ffcf5a";
+    ctx.beginPath();
+    ctx.arc(cx, cy, s, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  fallbackKey(px: number, py: number, sz: number) {
+    const ctx = this.ctx;
+    const cx = px + sz / 2;
+    const cy = py + sz / 2;
+    ctx.save();
+    this.flashBlob(cx, cy, sz * 0.5, "rgba(255,210,90,0.18)");
+    ctx.fillStyle = "#e7c558";
+    ctx.strokeStyle = "#9c7a26";
+    ctx.lineWidth = Math.max(1, sz * 0.05);
+    // bow (ring)
+    ctx.beginPath();
+    ctx.arc(cx - sz * 0.18, cy - sz * 0.12, sz * 0.16, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    // shaft
+    ctx.fillRect(cx - sz * 0.05, cy - sz * 0.12, sz * 0.34, sz * 0.08);
+    // teeth
+    ctx.fillRect(cx + sz * 0.22, cy - sz * 0.02, sz * 0.05, sz * 0.12);
+    ctx.fillRect(cx + sz * 0.12, cy - sz * 0.02, sz * 0.05, sz * 0.1);
+    ctx.restore();
+  }
+  drawKeyIcon(cx: number, cy: number, s: number) {
+    this.fallbackKey(cx - s, cy - s, s * 2);
+  }
+  drawSealIcon(cx: number, cy: number, s: number) {
+    const img = this.assets.img("ring");
+    if (img) {
+      this.ctx.drawImage(img, cx - s, cy - s, s * 2, s * 2);
+    } else {
+      this.fallbackRing(cx - s, cy - s, s * 2);
+    }
+  }
+}
