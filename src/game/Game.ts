@@ -981,24 +981,32 @@ export class Game implements CombatHooks, CombatCallbacks {
 
   /**
    * Doorways are one tile wide; the player's collider would otherwise clip the
-   * flanking walls. When the player approaches the mouth of an open door, gently
-   * slide them onto the door's centerline so they pass cleanly (classic
-   * Zelda-style funneling).
+   * flanking walls when walking toward an exit. This gently slides the player
+   * onto a door's centerline — but ONLY while they're heading TOWARD that door
+   * to leave (never on entry or when navigating sideways around an obstacle, and
+   * never during a dash). That prevents the funnel from trapping the player on a
+   * door whose inner tile happens to sit beside a wall.
    */
   private funnelToDoors(dt: number) {
     const room = this.world.current;
     const p = this.player;
-    const pull = Math.min(0.35, (1 - Math.pow(0.0015, dt)) * 1.6);
+    if (p.dashing) return; // never fight a dash
+    const mx = this.input.moveX;
+    const my = this.input.moveY;
+    if (Math.abs(mx) < 0.05 && Math.abs(my) < 0.05) return; // not moving: don't tug
+    const pull = Math.min(0.4, (1 - Math.pow(0.0015, dt)) * 1.7);
     for (const dr of room.doors) {
       if (!dr.open) continue;
       const dc = Room.tileCenter(dr.def.tx, dr.def.ty);
       const edge = dr.def.edge;
       if (edge === "e" || edge === "w") {
-        const nearWall = edge === "e" ? p.x > dc.x - TILE * 2.2 : p.x < dc.x + TILE * 2.2;
-        if (nearWall && Math.abs(p.y - dc.y) < TILE * 1.4) p.y += (dc.y - p.y) * pull;
+        const heading = edge === "e" ? mx > 0.25 : mx < -0.25;
+        const nearWall = Math.abs(p.x - dc.x) < TILE * 1.6;
+        if (heading && nearWall && Math.abs(p.y - dc.y) < TILE * 1.1) p.y += (dc.y - p.y) * pull;
       } else {
-        const nearWall = edge === "s" ? p.y > dc.y - TILE * 2.2 : p.y < dc.y + TILE * 2.2;
-        if (nearWall && Math.abs(p.x - dc.x) < TILE * 1.4) p.x += (dc.x - p.x) * pull;
+        const heading = edge === "s" ? my > 0.25 : my < -0.25;
+        const nearWall = Math.abs(p.y - dc.y) < TILE * 1.6;
+        if (heading && nearWall && Math.abs(p.x - dc.x) < TILE * 1.1) p.x += (dc.x - p.x) * pull;
       }
     }
   }

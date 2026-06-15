@@ -109,6 +109,12 @@ export function validateAct(act: WorldAct): ValidationIssue[] {
       if (!tilePassable(room, land.tx, land.ty))
         err("entry-blocked", `Entering "${def.id}" via "${d.id}" lands on a non-passable tile (${land.tx},${land.ty}).`);
     }
+
+    // intra-room connectivity (physical traversal): flood the walkable tiles from
+    // one door entry and confirm every OTHER door entry + every meaningful spawn
+    // is in the same connected region — so no entrance/pickup is sealed off (this
+    // is what the logical door-graph reachability can't see).
+    for (const msg of roomConnectivity(def, room)) err("room-disconnected", msg);
   }
 
   // ---- 2. reachability (full logic + key-free critical path) ----
@@ -147,6 +153,63 @@ export function validateAct(act: WorldAct): ValidationIssue[] {
   }
 
   return issues;
+}
+
+/** A spawn whose tile the runtime marks solid (so it blocks the flood). */
+function isSolidProp(s: RoomDef["spawns"][number]): boolean {
+  if (s.solid === true) return true;
+  if (s.kind !== "prop") return false;
+  return s.prop === "barrel" || s.prop === "crate" || s.prop === "statue" || s.prop === "anvil";
+}
+
+/** Flood-fill walkable tiles; report door entries / spawns that aren't reachable. */
+function roomConnectivity(def: RoomDef, room: Room): string[] {
+  const out: string[] = [];
+  const blocked = new Set<string>();
+  const key = (x: number, y: number) => `${x},${y}`;
+  for (let y = 0; y < room.h; y++) {
+    for (let x = 0; x < room.w; x++) {
+      const c = room.cellAt(x, y)!;
+      // walls/gargoyle/void block; floor/hazard/door cells are walkable
+      if (!(c.kind === "floor" || c.kind === "hazard")) blocked.add(key(x, y));
+    }
+  }
+  for (const s of def.spawns) if (isSolidProp(s)) blocked.add(key(s.tx, s.ty));
+
+  // start flood at the first door's entry tile (or room centre if no doors)
+  const startTile = def.doors.length ? entryTile(room, def.doors[0]) : { tx: (room.w / 2) | 0, ty: (room.h / 2) | 0 };
+  const start = key(startTile.tx, startTile.ty);
+  if (blocked.has(start)) {
+    out.push(`Room "${def.id}" flood start (${startTile.tx},${startTile.ty}) is blocked.`);
+    return out;
+  }
+  const seen = new Set<string>([start]);
+  const q = [startTile];
+  while (q.length) {
+    const { tx, ty } = q.shift()!;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const nx = tx + dx;
+      const ny = ty + dy;
+      if (nx < 0 || ny < 0 || nx >= room.w || ny >= room.h) continue;
+      const k = key(nx, ny);
+      if (seen.has(k) || blocked.has(k)) continue;
+      seen.add(k);
+      q.push({ tx: nx, ty: ny });
+    }
+  }
+  // every door entry must be reachable
+  for (const d of def.doors) {
+    const e = entryTile(room, d);
+    if (!seen.has(key(e.tx, e.ty)))
+      out.push(`Room "${def.id}": door "${d.id}" entry (${e.tx},${e.ty}) is walled off from the rest of the room.`);
+  }
+  // every interactable / enemy / boss spawn must be reachable (props excluded — they ARE the obstacles)
+  for (const s of def.spawns) {
+    if (s.kind === "prop") continue;
+    if (!seen.has(key(s.tx, s.ty)))
+      out.push(`Room "${def.id}": ${s.kind}(${s.ref ?? s.pickup ?? ""}) at (${s.tx},${s.ty}) is unreachable within the room.`);
+  }
+  return out;
 }
 
 function entryTile(room: Room, d: DoorDef): { tx: number; ty: number } {
