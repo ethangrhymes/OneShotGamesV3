@@ -28,17 +28,17 @@ export interface ValidationIssue {
   message: string;
 }
 
-const PASSABLE_CHARS = new Set([".", ",", "~"]); // floor / floor-variant / hazard (passable)
-
 function buildRoom(def: RoomDef): Room {
   return new Room(def, () => true); // all doors carved open for geometry inspection
 }
 
+/** Where the player physically lands after a transition: must be solid ground —
+ * floor, hazard, a carved door, or a bridge. Never water (you'd be stuck/drown). */
 function tilePassable(room: Room, tx: number, ty: number): boolean {
   const c = room.cellAt(tx, ty);
   if (!c) return false;
   if (c.doorId) return true; // carved doorway
-  return c.kind === "floor" || c.kind === "hazard";
+  return c.kind === "floor" || c.kind === "hazard" || c.kind === "bridge";
 }
 
 export function validateAct(act: WorldAct): ValidationIssue[] {
@@ -92,14 +92,16 @@ export function validateAct(act: WorldAct): ValidationIssue[] {
         continue;
       }
       const cell = room.cellAt(s.tx, s.ty)!;
-      const onPassable = cell.kind === "floor" || (cell.kind === "hazard" && s.kind === "prop");
-      const isHazardEntity = cell.kind === "hazard" && s.kind !== "prop";
+      const deepWater = cell.kind === "water" && cell.variant === 1;
+      const shallowWater = cell.kind === "water" && cell.variant === 0;
+      const entity = s.kind === "enemy" || s.kind === "miniboss" || s.kind === "boss" || s.kind === "checkpoint";
       if (cell.kind === "wall" || cell.kind === "gargoyle" || cell.kind === "void") {
         err("spawn-in-wall", `Spawn ${s.kind}(${s.ref ?? s.prop ?? ""}) in "${def.id}" at (${s.tx},${s.ty}) is inside a ${cell.kind}.`);
-      } else if (isHazardEntity && (s.kind === "enemy" || s.kind === "miniboss" || s.kind === "boss" || s.kind === "checkpoint")) {
-        warn("spawn-on-hazard", `Spawn ${s.kind} in "${def.id}" sits on a hazard tile (${s.tx},${s.ty}).`);
-      } else if (!onPassable && cell.kind !== "hazard") {
-        warn("spawn-odd", `Spawn ${s.kind} in "${def.id}" on unexpected tile ${cell.kind}.`);
+      } else if (deepWater && s.kind !== "prop") {
+        // only decorative props (a beached ship) may sit on deep water
+        err("spawn-in-water", `Spawn ${s.kind}(${s.ref ?? s.pickup ?? ""}) in "${def.id}" at (${s.tx},${s.ty}) is in deep water.`);
+      } else if ((cell.kind === "hazard" || shallowWater) && entity) {
+        warn("spawn-on-hazard", `Spawn ${s.kind} in "${def.id}" sits on a ${shallowWater ? "shallow-tide" : "hazard"} tile (${s.tx},${s.ty}).`);
       }
     }
 
@@ -159,55 +161,95 @@ export function validateAct(act: WorldAct): ValidationIssue[] {
 function isSolidProp(s: RoomDef["spawns"][number]): boolean {
   if (s.solid === true) return true;
   if (s.kind !== "prop") return false;
-  return s.prop === "barrel" || s.prop === "crate" || s.prop === "statue" || s.prop === "anvil";
+  return (
+    s.prop === "barrel" ||
+    s.prop === "crate" ||
+    s.prop === "statue" ||
+    s.prop === "anvil" ||
+    s.prop === "ship" ||
+    s.prop === "tower" ||
+    s.prop === "dune"
+  );
 }
 
-/** Flood-fill walkable tiles; report door entries / spawns that aren't reachable. */
+/**
+ * Flood-fill walkable tiles and report unreachable doors/spawns. Tide-aware:
+ *   Pass A (fording allowed — player holds the Tide Relic): shallow water +
+ *     bridges + floor/hazard are walkable. Every door entry AND every meaningful
+ *     spawn must be reachable (so ford-gated loot still validates).
+ *   Pass B (no fording — relic could be missing): shallow + deep water both
+ *     block. Every door entry must still reach every OTHER door entry, so the
+ *     tide can NEVER gate room-to-room traversal (the critical path & shortcuts
+ *     stay solid-ground; no soft-lock before the relic is found).
+ * Deep water always blocks. Solid props always block.
+ */
 function roomConnectivity(def: RoomDef, room: Room): string[] {
   const out: string[] = [];
-  const blocked = new Set<string>();
   const key = (x: number, y: number) => `${x},${y}`;
-  for (let y = 0; y < room.h; y++) {
-    for (let x = 0; x < room.w; x++) {
-      const c = room.cellAt(x, y)!;
-      // walls/gargoyle/void block; floor/hazard/door cells are walkable
-      if (!(c.kind === "floor" || c.kind === "hazard")) blocked.add(key(x, y));
-    }
-  }
-  for (const s of def.spawns) if (isSolidProp(s)) blocked.add(key(s.tx, s.ty));
+  const solidProps = new Set<string>();
+  for (const s of def.spawns) if (isSolidProp(s)) solidProps.add(key(s.tx, s.ty));
 
-  // start flood at the first door's entry tile (or room centre if no doors)
+  const flood = (ford: boolean): Set<string> => {
+    const passable = (x: number, y: number): boolean => {
+      if (solidProps.has(key(x, y))) return false;
+      const c = room.cellAt(x, y);
+      if (!c) return false;
+      if (c.doorId) return true; // carved doorway
+      if (c.kind === "floor" || c.kind === "hazard" || c.kind === "bridge") return true;
+      if (c.kind === "water") return ford && c.variant === 0; // shallow, only while fording
+      return false; // wall / gargoyle / void / deep water
+    };
+    const startTile = def.doors.length ? entryTile(room, def.doors[0]) : { tx: (room.w / 2) | 0, ty: (room.h / 2) | 0 };
+    const seen = new Set<string>();
+    if (!passable(startTile.tx, startTile.ty)) return seen;
+    seen.add(key(startTile.tx, startTile.ty));
+    const q = [startTile];
+    while (q.length) {
+      const { tx, ty } = q.shift()!;
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const nx = tx + dx;
+        const ny = ty + dy;
+        if (nx < 0 || ny < 0 || nx >= room.w || ny >= room.h) continue;
+        const k = key(nx, ny);
+        if (seen.has(k) || !passable(nx, ny)) continue;
+        seen.add(k);
+        q.push({ tx: nx, ty: ny });
+      }
+    }
+    return seen;
+  };
+
   const startTile = def.doors.length ? entryTile(room, def.doors[0]) : { tx: (room.w / 2) | 0, ty: (room.h / 2) | 0 };
-  const start = key(startTile.tx, startTile.ty);
-  if (blocked.has(start)) {
+
+  // ---- Pass A: with fording — everything meaningful must be reachable ----
+  const withFord = flood(true);
+  if (!withFord.has(key(startTile.tx, startTile.ty))) {
     out.push(`Room "${def.id}" flood start (${startTile.tx},${startTile.ty}) is blocked.`);
     return out;
   }
-  const seen = new Set<string>([start]);
-  const q = [startTile];
-  while (q.length) {
-    const { tx, ty } = q.shift()!;
-    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-      const nx = tx + dx;
-      const ny = ty + dy;
-      if (nx < 0 || ny < 0 || nx >= room.w || ny >= room.h) continue;
-      const k = key(nx, ny);
-      if (seen.has(k) || blocked.has(k)) continue;
-      seen.add(k);
-      q.push({ tx: nx, ty: ny });
-    }
-  }
-  // every door entry must be reachable
   for (const d of def.doors) {
     const e = entryTile(room, d);
-    if (!seen.has(key(e.tx, e.ty)))
+    if (!withFord.has(key(e.tx, e.ty)))
       out.push(`Room "${def.id}": door "${d.id}" entry (${e.tx},${e.ty}) is walled off from the rest of the room.`);
   }
-  // every interactable / enemy / boss spawn must be reachable (props excluded — they ARE the obstacles)
   for (const s of def.spawns) {
-    if (s.kind === "prop") continue;
-    if (!seen.has(key(s.tx, s.ty)))
+    if (s.kind === "prop") continue; // props ARE the obstacles
+    if (!withFord.has(key(s.tx, s.ty)))
       out.push(`Room "${def.id}": ${s.kind}(${s.ref ?? s.pickup ?? ""}) at (${s.tx},${s.ty}) is unreachable within the room.`);
+  }
+
+  // ---- Pass B: without fording — doors must stay mutually reachable ----
+  if (def.doors.length > 1) {
+    const noFord = flood(false);
+    if (noFord.has(key(startTile.tx, startTile.ty))) {
+      for (const d of def.doors) {
+        const e = entryTile(room, d);
+        if (!noFord.has(key(e.tx, e.ty)))
+          out.push(
+            `Room "${def.id}": door "${d.id}" entry (${e.tx},${e.ty}) is only reachable by fording the tide from "${def.doors[0].id}" — a ford must never gate room-to-room traversal (the Tide Relic may not be held yet).`
+          );
+      }
+    }
   }
   return out;
 }

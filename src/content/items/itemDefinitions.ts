@@ -51,6 +51,22 @@ export const itemDefinitions: Record<string, ItemDef> = {
     description: "A still-warm heart of the road. Maximum hearts +1.",
     upgrade: "emberHeart",
   },
+  tideRelic: {
+    id: "tideRelic",
+    name: "Tide Relic",
+    kind: "upgrade",
+    sprite: "ring",
+    description: "The drowned king's signet. The shallow tide parts for you — wade the shallows you could not before.",
+    upgrade: "tideRelic",
+  },
+  brineHeart: {
+    id: "brineHeart",
+    name: "Brine Heart",
+    kind: "upgrade",
+    sprite: "potion_red",
+    description: "A heart pickled in salt and sorrow, torn from the toll-engine. Maximum hearts +1.",
+    upgrade: "brineHeart",
+  },
   potion: {
     id: "potion",
     name: "Ember Draught",

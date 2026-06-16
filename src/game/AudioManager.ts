@@ -26,7 +26,7 @@ export type Sfx =
   | "gameover";
 
 /** A music "biome" picks the base bed; combat/safe modulate intensity on top. */
-type Biome = "explore" | "boss" | "region";
+type Biome = "explore" | "boss" | "region" | "reach";
 
 export class AudioManager {
   private ctx: AudioContext | null = null;
@@ -117,7 +117,8 @@ export class AudioManager {
           if (
             (name === "music_explore" && this.currentMusic === "explore") ||
             (name === "music_boss" && this.currentMusic === "boss") ||
-            (name === "music_region2" && this.currentMusic === "region")
+            (name === "music_region2" && this.currentMusic === "region") ||
+            (name === "music_reach" && this.currentMusic === "reach")
           ) {
             this.startMusic(this.currentMusic, true);
           }
@@ -330,19 +331,27 @@ export class AudioManager {
     this.currentMusic = name;
     this.stopMusicNodes();
 
-    const bufName = name === "explore" ? "music_explore" : name === "boss" ? "music_boss" : "music_region2";
+    const bufName =
+      name === "explore"
+        ? "music_explore"
+        : name === "boss"
+        ? "music_boss"
+        : name === "reach"
+        ? "music_reach"
+        : "music_region2";
     const buf = this.buffers.get(bufName);
-    const target = name === "boss" ? 0.3 : name === "region" ? 0.24 : 0.24;
+    const target = name === "boss" ? 0.3 : 0.24;
 
     if (buf) {
       const src = this.ctx.createBufferSource();
       src.buffer = buf;
       src.loop = true;
-      // a touch slower + a gentle low-pass keeps Kenney loops dark, not loud
-      src.playbackRate.value = name === "boss" ? 0.95 : 0.9;
+      // a touch slower + a gentle low-pass keeps Kenney loops dark, not loud.
+      // The Reach runs slowest + murkiest — a drowned, tidal hush.
+      src.playbackRate.value = name === "boss" ? 0.95 : name === "reach" ? 0.85 : 0.9;
       const lp = this.ctx.createBiquadFilter();
       lp.type = "lowpass";
-      lp.frequency.value = name === "boss" ? 2600 : 1900;
+      lp.frequency.value = name === "boss" ? 2600 : name === "reach" ? 1650 : 1900;
       src.connect(lp);
       lp.connect(this.musicGain);
       src.start();
@@ -359,9 +368,17 @@ export class AudioManager {
   /** Darker synthesized ambient bed used when no Kenney music decoded. */
   private startDrone(name: Biome): void {
     if (!this.ctx || !this.musicGain) return;
-    // lower roots + minor intervals = darker than Round 1
-    const root = name === "boss" ? 43.65 : name === "region" ? 48.99 : 55.0; // F1 / G1 / A1
-    const intervals = name === "boss" ? [1, 1.5, 1.189] : name === "region" ? [1, 1.335, 2] : [1, 1.5, 1.189];
+    // lower roots + minor intervals = darker than Round 1.
+    // reach = E1, a deep tidal swell (lowest, widest of the beds).
+    const root = name === "boss" ? 43.65 : name === "region" ? 48.99 : name === "reach" ? 41.2 : 55.0;
+    const intervals =
+      name === "boss"
+        ? [1, 1.5, 1.189]
+        : name === "region"
+        ? [1, 1.335, 2]
+        : name === "reach"
+        ? [1, 1.498, 1.122] // fifth + a beating minor second: unsettled, tidal
+        : [1, 1.5, 1.189];
     intervals.forEach((mult, i) => {
       const osc = this.ctx!.createOscillator();
       osc.type = i === 0 ? "sine" : i === 1 ? "triangle" : "sawtooth";
@@ -385,9 +402,15 @@ export class AudioManager {
       this.musicNodes.push(osc, lfo, lp);
     });
     // sparse, unresolved bell motif
-    const step = name === "boss" ? 2.6 : name === "region" ? 4.8 : 4.4;
+    const step = name === "boss" ? 2.6 : name === "region" ? 4.8 : name === "reach" ? 5.4 : 4.4;
     const notes =
-      name === "boss" ? [196, 233, 174.6] : name === "region" ? [293.7, 220, 329.6] : [261.6, 196, 311.1];
+      name === "boss"
+        ? [196, 233, 174.6]
+        : name === "region"
+        ? [293.7, 220, 329.6]
+        : name === "reach"
+        ? [220, 164.8, 246.9] // low, slow tide-bells
+        : [261.6, 196, 311.1];
     let idx = 0;
     const tick = () => {
       if (this.currentMusic !== name || !this.ctx) return;

@@ -86,6 +86,8 @@ export class Game implements CombatHooks, CombatCallbacks {
   fade = 0;
   difficulty: DifficultyMode = "normal";
   debug = false;
+  debugText = false;
+  private warpIdx = 0;
   private currentRegionId = "";
   private pendingVictory = false;
   private transitionLockT = 0; // brief lockout so knockback can't bounce you back through a door
@@ -133,12 +135,20 @@ export class Game implements CombatHooks, CombatCallbacks {
     document.addEventListener("visibilitychange", () => {
       if (document.hidden && this.state === "playing") this.state = "pause";
     });
-    // F2 toggles the traversal/collision debug overlay (dev aid, harmless in prod);
+    // Dev overlays (harmless in prod, key-only — never exposed in the mobile UI):
+    //   F2 = traversal/collision overlay   F3 = region/room/flags text
+    //   F4 = quick-travel between discovered checkpoints (dev only)
     // M toggles mute (the controls screen advertises it).
     window.addEventListener("keydown", (e) => {
       if (e.key === "F2") {
         e.preventDefault();
         this.debug = !this.debug;
+      } else if (e.key === "F3") {
+        e.preventDefault();
+        this.debugText = !this.debugText;
+      } else if (e.key === "F4") {
+        e.preventDefault();
+        this.devWarpCheckpoint();
       } else if (e.key === "m" || e.key === "M") {
         this.toggleMute();
       }
@@ -354,7 +364,15 @@ export class Game implements CombatHooks, CombatCallbacks {
   private updateMusic() {
     const room = this.world.current;
     const bossActive = !!this.boss && this.boss.alive;
-    const biome = bossActive && room.def.music === "boss" ? "boss" : room.def.music === "region" ? "region" : "explore";
+    // A live boss/miniboss always commands the boss bed; otherwise the room's
+    // own bed (region / reach / explore) plays.
+    const biome = bossActive
+      ? "boss"
+      : room.def.music === "region"
+      ? "region"
+      : room.def.music === "reach"
+      ? "reach"
+      : "explore";
     this.audio.setMusicScene(biome, !!room.def.isSafe, this.combatIntensity());
   }
 
@@ -800,6 +818,12 @@ export class Game implements CombatHooks, CombatCallbacks {
     const upId = item?.upgrade ?? ref;
     this.run.addUpgrade(upId);
     if (!this.save.data.permanentUpgrades.includes(upId)) this.save.data.permanentUpgrades.push(upId);
+    // The Tide Relic immediately makes the shallows around you fordable (no need
+    // to re-enter the room), and the door logic refreshes so nothing reads stale.
+    if (upId === "tideRelic") {
+      this.world.current.unlockTide();
+      this.toast("The shallow tide parts before you.", "#46b4c8");
+    }
     this.sfx("pickup");
     this.persist();
     this.showModal({
@@ -821,7 +845,7 @@ export class Game implements CombatHooks, CombatCallbacks {
         (it.kind === "lever" && !it.used) ||
         (it.kind === "lore" && !it.used) ||
         it.kind === "checkpoint" ||
-        (it.kind === "prop" && it.uid === "act2_gate");
+        (it.kind === "prop" && it.uid === "deep_gate");
       if (!interactable) continue;
       const d = Math.hypot(p.x - it.x, p.y - it.y);
       if (d < bestD) {
@@ -868,7 +892,7 @@ export class Game implements CombatHooks, CombatCallbacks {
         this.useCheckpoint(it);
         break;
       case "prop":
-        if (it.uid === "act2_gate") this.regionComplete();
+        if (it.uid === "deep_gate") this.regionComplete();
         break;
     }
   }
@@ -1145,10 +1169,11 @@ export class Game implements CombatHooks, CombatCallbacks {
   }
   lastWinBest = { time: false, embers: false };
 
-  /** Round 2 endpoint — reached at the sealed Act II causeway gate. */
+  /** Phase 3 endpoint — reached at the sealed Drowned Toll-Gate. */
   private regionComplete() {
     this.save.data.completedMiniRegion = true;
     this.save.data.round2VisitedWorldGate = true;
+    this.save.data.completedReach = true;
     this.save.flush();
     this.persist();
     this.audio.play("victory");
@@ -1162,6 +1187,14 @@ export class Game implements CombatHooks, CombatCallbacks {
   private objective(): string {
     const r = this.run;
     const region = this.world.regionOf(this.world.current.def.id);
+    if (region?.id === "saltblack_reach") {
+      const id = this.world.current.def.id;
+      if (id === "sr_drowngate") return "Examine the sealed Drowned Toll-Gate.";
+      if (id === "sr_tollworks") return "Break the toll — defeat the Drowned Gear.";
+      if (r.getFlag("tollGearDefeated")) return "The toll is paid. Press east to the Drowned Toll-Gate.";
+      if (!r.tideUnlocked) return "Cross the Reach east. Seek the Tide Shrine, north of the strand.";
+      return "Ford the shallow tide and press east to the Tollworks.";
+    }
     if (region?.id === "rootward_road") {
       if (this.world.current.def.id === "rr_causeway") return "Examine the sealed causeway gate.";
       if (r.getFlag("road_shortcut")) return "Follow the bell-road east to the sealed causeway.";
@@ -1252,6 +1285,7 @@ export class Game implements CombatHooks, CombatCallbacks {
     }
     // banners (region entered / discovery / boss intro) overlay everything
     this.ui.drawBanner();
+    if (this.debugText && inWorld) this.drawDebugText();
   }
 
   private checkpointDisplayName(): string {
@@ -1259,6 +1293,10 @@ export class Game implements CombatHooks, CombatCallbacks {
       cp_gate: "the Threshold",
       cp_well: "the Echo Well",
       cp_shrine: "the Shrine of Ash",
+      cp_road_gate: "the Cinder Gate",
+      cp_road_span: "the Broken Span",
+      cp_reach_landing: "the Saltstair",
+      cp_reach_lantern: "the Tideward Lantern",
     };
     return map[this.run?.checkpointId ?? ""] ?? "the last Emberlight";
   }
@@ -1278,6 +1316,59 @@ export class Game implements CombatHooks, CombatCallbacks {
       regionName: region.name,
       accent: region.accent ?? "#ff9a3c",
     };
+  }
+
+  /** F4 (dev only): teleport to the next visited checkpoint, for fast testing. */
+  private devWarpCheckpoint() {
+    if (!import.meta.env.DEV || this.state !== "playing" || !this.run) return;
+    const cps: { roomId: string; uid: string }[] = [];
+    for (const region of this.world.act.regions) {
+      for (const room of region.rooms) {
+        for (const s of room.spawns) {
+          if (s.kind === "checkpoint" && s.uid && this.run.stats.roomsVisited.has(room.id)) {
+            cps.push({ roomId: room.id, uid: s.uid });
+          }
+        }
+      }
+    }
+    if (!cps.length) return;
+    this.warpIdx = (this.warpIdx + 1) % cps.length;
+    const target = cps[this.warpIdx];
+    this.enterRoom(target.roomId, null, true);
+    const cp = this.interactables.find((it) => it.kind === "checkpoint" && it.uid === target.uid);
+    if (cp) {
+      this.player.x = cp.x;
+      this.player.y = cp.y + TILE * 0.6;
+    }
+    this.toast(`[dev] → ${target.roomId}`, "#9effa0");
+  }
+
+  /** F3 (dev): a compact text panel of region/room/flags/upgrades state. */
+  private drawDebugText() {
+    if (!this.world.current || !this.run) return;
+    const ctx = this.renderer.ctx;
+    const room = this.world.current.def;
+    const region = this.world.regionOf(room.id);
+    const flags = Object.keys(this.run.flags).filter((k) => this.run.flags[k]);
+    const ups = [...this.run.upgrades];
+    const lines = [
+      `region: ${region?.id ?? "?"}  room: ${room.id}  music: ${room.music ?? "?"}`,
+      `tideUnlocked: ${this.run.tideUnlocked}  checkpoint: ${this.run.checkpointId ?? "-"} @ ${this.run.checkpointRoomId ?? "-"}`,
+      `upgrades: ${ups.length ? ups.join(", ") : "(none)"}`,
+      `flags: ${flags.length ? flags.join(", ") : "(none)"}`,
+    ];
+    ctx.save();
+    ctx.font = "11px monospace";
+    ctx.textAlign = "left";
+    ctx.textBaseline = "top";
+    const pad = 6;
+    const w = Math.min(this.renderer.viewW - 8, 520);
+    const h = lines.length * 14 + pad * 2;
+    ctx.fillStyle = "rgba(0,0,0,0.6)";
+    ctx.fillRect(4, 40, w, h);
+    ctx.fillStyle = "#9effa0";
+    lines.forEach((ln, i) => ctx.fillText(ln, 4 + pad, 40 + pad + i * 14));
+    ctx.restore();
   }
 
   private drawWorldBackdrop() {

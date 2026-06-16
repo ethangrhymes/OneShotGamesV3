@@ -485,7 +485,7 @@ export class UI {
     this.text(stats.join("    "), this.W / 2, this.H - 56 * s, C.dim, "center");
 
     this.font(11, "normal");
-    this.text("Art: Kenney Tiny Dungeon + Tiny Town · Audio: Kenney + synth (CC0)", this.W / 2, this.H - 34 * s, C.dim, "center");
+    this.text("Art: Kenney Tiny Dungeon · Tiny Town · Tiny Battle · Audio: Kenney + synth (CC0)", this.W / 2, this.H - 34 * s, C.dim, "center");
     this.text("WASD/Arrows move · Space attack · Shift roll · E interact", this.W / 2, this.H - 18 * s, C.dim, "center");
   }
 
@@ -522,9 +522,11 @@ export class UI {
       "  Two Warden Seals open the sealed door to the boss.",
       "  Fall and you respawn at the last rest; your dropped",
       "  embers wait where you died — reclaim them.",
-      "  Beyond the Keep lies the Rootward Road, and the",
-      "  sealed gate to Act II. (F2 toggles a dev overlay.)",
+      "  Beyond the Keep: the Rootward Road, then the drowned",
+      "  Saltblack Reach. Find the Tide Relic to ford the",
+      "  shallow tide; cross deep water only on bridges.",
       "  Easy mode = a forgiving QA/practice scale.",
+      "  (Dev: F2 collision · F3 state · F4 warp checkpoints.)",
     ];
     let ty = y + 70 * s;
     for (const ln of lines) {
@@ -633,7 +635,7 @@ export class UI {
       ["Rooms cleared", `${run.stats.roomsVisited.size}`, false],
       ["Enemies defeated", `${run.stats.enemiesDefeated}`, false],
       ["Embers collected", `${run.stats.embersCollected}`, newBest.embers],
-      ["Lore found", `${run.stats.loreFound} / 15`, false],
+      ["Lore found", `${run.stats.loreFound}`, false],
       ["Deaths", `${run.stats.deaths}`, false],
     ];
     const w = Math.min(this.W * 0.8, 420 * s);
@@ -665,46 +667,67 @@ export class UI {
   }
 
   // =====================================================================
-  // Region complete (Round 2 endpoint — Act II teaser)
+  // Region complete (Phase 3 endpoint — the Drowned Toll-Gate)
   // =====================================================================
   drawRegionComplete(run: RunState, save: SaveData) {
     this.buttons = [];
     const ctx = this.ctx;
     const s = this.uiScale;
-    this.dimScreen(0.62);
+    this.dimScreen(0.64);
     ctx.save();
-    ctx.shadowColor = "rgba(180,140,255,0.6)";
+    ctx.shadowColor = "rgba(70,180,200,0.6)";
     ctx.shadowBlur = 22 * s;
-    this.serif(34);
-    this.text("The Rootward Road", this.W / 2, this.H * 0.16, C.arcane, "center");
+    this.serif(33);
+    this.text("The Saltblack Reach", this.W / 2, this.H * 0.14, "#46b4c8", "center");
     ctx.restore();
-    this.serif(20);
-    this.text("Act II — Sealed", this.W / 2, this.H * 0.16 + 30 * s, C.ember, "center");
-    this.font(14, "normal", "Georgia, serif");
-    const tease = "You reach the sealed causeway. Beyond it: a drowned verge, an old king's road, a buried sun — all waiting. The Keep was one wound. The world has many.";
-    let ty = this.H * 0.16 + 56 * s;
+    this.serif(19);
+    this.text("The Road Goes On", this.W / 2, this.H * 0.14 + 28 * s, C.ember, "center");
+    this.font(13.5, "normal", "Georgia, serif");
+    const tease =
+      "The Drowned Gear is broken; the toll is paid. Past the sealed gate the road climbs into a country of glass and buried suns, where the curse wears a brighter face. Seals are made to be broken.";
+    let ty = this.H * 0.14 + 52 * s;
     for (const ln of this.wrap(tease, Math.min(this.W * 0.82, 520 * s))) {
       this.text(ln, this.W / 2, ty, C.dim, "center");
-      ty += 20 * s;
+      ty += 19 * s;
     }
+
+    // The journey-so-far ledger: which world segments are cleared / pending.
+    const journey: [string, boolean][] = [
+      ["Emberfall Keep — broken", true],
+      ["The Rootward Road — walked", true],
+      ["The Saltblack Reach — drowned & crossed", true],
+      ["The Glass Country — sealed", false],
+    ];
+    const jw = Math.min(this.W * 0.82, 440 * s);
+    const jx = this.W / 2 - jw / 2;
+    let jy = ty + 8 * s;
+    this.panel(jx, jy, jw, journey.length * 21 * s + 14 * s, true);
+    this.font(13);
+    let ly = jy + 22 * s;
+    for (const [label, done] of journey) {
+      this.text(done ? "✓" : "◇", jx + 16 * s, ly, done ? C.good : C.dim, "left");
+      this.text(label, jx + 34 * s, ly, done ? C.ink : C.dim, "left");
+      ly += 21 * s;
+    }
+
     const rows: [string, string, boolean][] = [
       ["Total time", formatTime(run.stats.elapsedMs), false],
       ["Rooms explored", `${run.stats.roomsVisited.size}`, false],
       ["Enemies defeated", `${run.stats.enemiesDefeated}`, false],
-      ["Bell Tokens", `${run.bellTokens} / 3`, run.bellTokens >= 3],
-      ["Elite felled", run.getFlag("optionalEliteDefeated") ? "yes" : "no", run.getFlag("optionalEliteDefeated")],
-      ["Lore found", `${run.stats.loreFound} / 15`, run.stats.loreFound >= 15],
+      ["Bell Tokens", `${run.bellTokens} / 5`, run.bellTokens >= 5],
+      ["Tide forded", run.tideUnlocked ? "yes" : "no", run.tideUnlocked],
+      ["Lore found", `${run.stats.loreFound}`, false],
     ];
-    const w = Math.min(this.W * 0.8, 420 * s);
+    const w = Math.min(this.W * 0.82, 440 * s);
     const x = this.W / 2 - w / 2;
-    const py = ty + 10 * s;
-    const rh = 23 * s;
+    const py = ly + 8 * s;
+    const rh = 22 * s;
     this.statRows(x, py, w, rh, rows);
 
     const bw = Math.min(this.W * 0.74, 300 * s);
     const bh = 44 * s;
     const bx = this.W / 2 - bw / 2;
-    let by = py + rows.length * rh + 30 * s;
+    let by = py + rows.length * rh + 26 * s;
     this.button({ id: "replay", x: bx, y: by, w: bw, h: bh, label: "Begin a New Journey", primary: true });
     by += bh + 9 * s;
     this.button({ id: "credits", x: bx, y: by, w: bw / 2 - 5 * s, h: bh * 0.78, label: "Credits", small: true });

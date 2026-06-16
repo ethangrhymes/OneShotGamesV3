@@ -277,10 +277,14 @@ export const rootwardRoad: RegionDef = {
         "#...........#",
         "#############",
       ],
-      doors: [{ id: "rr_causeway_w", tx: 0, ty: 4, edge: "w", to: "rr_span", toDoorId: "rr_span_e", type: "open" }],
+      doors: [
+        { id: "rr_causeway_w", tx: 0, ty: 4, edge: "w", to: "rr_span", toDoorId: "rr_span_e", type: "open" },
+        // Phase 3: the once-sealed causeway now opens east onto the Saltblack Reach.
+        { id: "rr_causeway_e", tx: 12, ty: 4, edge: "e", to: "sr_landing", toDoorId: "sr_landing_w", type: "open" },
+      ],
       spawns: [
-        // The sealed Act II gate — interacting with it ends Round 2.
-        { kind: "prop", tx: 6, ty: 3, prop: "arch", solid: false, uid: "act2_gate" },
+        // The old Act II gate — its seal has thinned; it now frames the way onward (decorative).
+        { kind: "prop", tx: 6, ty: 3, prop: "arch", solid: false, uid: "world_gate3" },
         { kind: "lore", tx: 3, ty: 6, ref: "l_causeway", prop: "sign" },
         { kind: "lore", tx: 9, ty: 6, ref: "l_bell", prop: "sign" },
         { kind: "prop", tx: 3, ty: 2, prop: "tree" },

@@ -32,6 +32,9 @@ export type UpgradeId =
   | "heartVessel" // +1 max heart
   | "wardensEdge" // longer / stronger attack
   | "swiftBoots" // faster dash cooldown
+  | "emberHeart" // +1 max heart (Round 2)
+  | "tideRelic" // Phase 3: ford shallow tide-water
+  | "brineHeart" // Phase 3: +1 max heart (Drowned Gear reward)
   | (string & {});
 
 // ---------------------------------------------------------------------------
@@ -106,7 +109,13 @@ export type PropKind =
   | "sign"
   | "well"
   | "stall"
-  | "arch";
+  | "arch"
+  // war-coast (Tiny Battle) props
+  | "ship" // beached warship hull
+  | "flag" // drowned banner
+  | "tower" // ruined keep / watchtower
+  | "dune" // sand cairn
+  | "warcross"; // crossed-blade grave marker
 
 export interface SpawnDef {
   kind: SpawnKind;
@@ -145,10 +154,10 @@ export interface ChestContents {
 // Rooms / Regions / Acts
 // ---------------------------------------------------------------------------
 
-export type FloorStyle = "stone" | "dirt" | "tile" | "grass" | "path";
+export type FloorStyle = "stone" | "dirt" | "tile" | "grass" | "path" | "saltgrass";
 export type WallStyle = "brick" | "stone" | "townstone" | "redbrick" | "wood" | "hedge";
 export type RoomTheme = "dungeon" | "outdoor";
-export type MusicTrack = "explore" | "boss" | "region";
+export type MusicTrack = "explore" | "boss" | "region" | "reach";
 
 export interface RoomDef {
   id: string;
@@ -159,6 +168,8 @@ export interface RoomDef {
    * ASCII layout. Each string is a row. Characters:
    *   '#' wall   '.' floor   ',' floor-variant   '~' hazard/pit
    *   '=' decorative wall (gargoyle)   ' ' void/outside
+   *   'W' deep water (always solid)   'w' shallow tide (solid until the
+   *   Tide Relic is held)   'B' bridge planks (always walkable)
    * Door openings are carved automatically from `doors`.
    */
   layout: string[];
@@ -325,4 +336,6 @@ export interface SaveData {
   round2VisitedWorldGate: boolean;
   optionalEliteDefeated: boolean;
   audioModeVersion: number;
+  // ---- Phase 3 expansion hooks (older saves auto-initialize these) ----
+  completedReach: boolean; // reached the Drowned Toll-Gate (Phase 3 endpoint)
 }

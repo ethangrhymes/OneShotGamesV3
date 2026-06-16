@@ -1,20 +1,51 @@
 # Emberfall Keep
 
 A complete, mobile-friendly **top-down Zelda-like / light Soulslike** built with
-TypeScript + Vite + HTML5 Canvas. Two cursed, interconnected regions:
+TypeScript + Vite + HTML5 Canvas. Three cursed, interconnected regions, each its own
+cohesive Kenney 16×16 pack — stitched into one road by a spreading curse:
 
 1. **Act I — The Sunken Keep** (Kenney *Tiny Dungeon*): a 16-room dungeon with
    Emberlight checkpoints, a recoverable death drop, a boss gate sealed behind
    Warden Seals, a miniboss, and the final boss — The Hollow Warden.
 2. **The Rootward Road** (Kenney *Tiny Town*): a 7-area cursed overground bell-road
    beyond the broken gate — a swallowed hamlet, a blackroot grove, an elite Barrow
-   Champion, a broken span, and the sealed causeway to **Act II**.
+   Champion, a broken span, and the once-sealed causeway.
+3. **The Saltblack Reach** (Kenney *Tiny Battle*): a 10-area **drowned war-coast** past
+   the causeway, where an ancient war sank mid-stride. Ford the shallow **tide** with
+   the **Tide Relic**, cross deep water on bridges, and break **The Drowned Gear** at
+   the toll-gate — beyond it, a country of glass and buried suns waits, sealed.
 
 > The light that kept the Keep has gone hollow. Break the curse, then walk the road
 > beyond — the Keep was only the first opened wound in a much larger cursed world.
 
 The engine is fully data-driven, so future acts/regions/bosses are added as content
-files, not engine rewrites (see [`CONTENT_GUIDE.md`](CONTENT_GUIDE.md)).
+files, not engine rewrites (see [`CONTENT_GUIDE.md`](CONTENT_GUIDE.md)). For how the
+Kenney bundle is mined and mixed across regions, see [`ASSET_GUIDE.md`](ASSET_GUIDE.md).
+
+## Phase 3 expansion — The Saltblack Reach (what's new)
+
+- **A whole new region** beyond the Rootward causeway: **The Saltblack Reach**, a
+  drowned war-coast of **10 areas** built from a third Kenney pack, **Tiny Battle**
+  (`tb_*` keys — water, coasts, bridges, ruined keeps, drowned banners, beached
+  ships). The causeway that used to dead-end Round 2 now opens east onto it.
+- **A new traversal mechanic — the Tide.** Three new tile kinds: deep water
+  (`W`, always solid — borders & moats), **shallow tide** (`w`, fordable **only**
+  once you hold the **Tide Relic**), and **bridges** (`B`, always walkable). Shallow
+  fords gate optional loot and shortcuts; the critical path always crosses on bridges,
+  so the relic is never required to progress and is never gated behind itself.
+- **Two new permanent upgrades** — the **Tide Relic** (ford the shallows) and the
+  **Brine Heart** (+1 max heart, dropped by the new miniboss).
+- **A new miniboss — The Drowned Gear** (volley / tide-slam / ram), plus **4 new
+  enemies**: the Drowned Knight (heavy lunger), Brine Archer (retreating shooter),
+  Tollworks Turret (stationary spread), and the splitting Mire Crawler.
+- **A new tide-gate shortcut loop**, two optional ford-branches (a beached hulk and
+  a reef), two new checkpoints, **8 new lore fragments**, a distinct **drowned
+  "reach" ambience**, and a richer **journey-progress endpoint screen** that teases
+  the next sealed world segment.
+- **Validator made tide-aware** — it now proves *both* that every spawn is reachable
+  *with* fording **and** that no ford can ever gate room-to-room traversal (so you can
+  never soft-lock before finding the relic). Dev overlays added: **F3** (region/room/
+  flags) and **F4** (warp between discovered checkpoints).
 
 ## Round 2 expansion (what's new)
 
@@ -61,7 +92,7 @@ files, not engine rewrites (see [`CONTENT_GUIDE.md`](CONTENT_GUIDE.md)).
 | Interact (chests, levers, lore, doors, rest) | `E` / `F` |
 | Pause | `Esc` / `P` |
 | Mute | `M` |
-| Debug overlay (dev) | `F2` |
+| Debug overlays (dev) | `F2` collision · `F3` region/room/flags · `F4` warp checkpoints |
 | Confirm menus | `Enter` / `Space` / tap |
 
 **Mobile / touch**
@@ -152,10 +183,15 @@ or combat readability:
 - **Tiny Town** → The Rootward Road (`tt_*` keys): grass, cobble roads, dying
   autumn trees, houses, fences, a stone causeway arch, signs, a well, a market
   stall, and the gold Bell-Token relic.
+- **Tiny Battle** → The Saltblack Reach (`tb_*` keys): deep & shallow water, coasts,
+  plank bridges, fords, ruined keeps/bastions, drowned banners, a crossed-blade
+  grave marker, a sand cairn, and a beached warship hull.
 
 Mixing is deliberate, not random: the visual shift is the curse spreading from the
-Keep onto the old bell-road. The art-prep script keeps both packs documented in the
-manifest with their source pack + tile index.
+Keep onto the bell-road and then drowning the war-coast beyond. The art-prep script
+keeps all three packs documented in the manifest with their source pack + tile index.
+See [`ASSET_GUIDE.md`](ASSET_GUIDE.md) for how packs are chosen, namespaced, and
+justified in-fiction.
 
 ### Fallback behavior
 
@@ -204,8 +240,19 @@ and synth audio.
   and minimap group.
 - New enemy behaviors (turret / charger / splitter) and an optional **elite**
   (the Barrow Champion) guarding an **Ember Heart** upgrade.
-- Optional **Bell Tokens**, a shortcut winch back to the gate, and a sealed Act II
-  causeway gate that ends Round 2 with a "world has many wounds" teaser screen.
+- Optional **Bell Tokens**, a shortcut winch back to the gate, and the causeway —
+  once Round 2's dead-end, now the door east into Phase 3.
+
+**The Saltblack Reach** (Phase 3)
+
+- 10 areas (Saltstair, Black Strand, Tide Shrine, Beached Hulk, Broken Spans,
+  Lowtide Muster, Saltblack Reef, Tideward Lantern, Tollworks, Drowned Toll-Gate)
+  with two checkpoints and their own teal-accented minimap group.
+- The **Tide** mechanic: deep water blocks, bridges cross it, and the **Tide Relic**
+  (found ford-free at the Tide Shrine) lets you wade shallow fords to optional loot.
+- 4 new enemies, the **Drowned Gear** miniboss (drops the **Brine Heart**), a
+  tide-gate shortcut winch, two optional ford-branches, 8 lore fragments, and a
+  journey-progress endpoint that teases the sealed **Glass Country** beyond.
 
 ---
 
@@ -218,9 +265,10 @@ Everything is `localStorage`, no accounts/servers/cookies:
 - An in-progress **run snapshot** (resources incl. Bell Tokens, opened chests,
   world flags, discovered lore, current checkpoint) so closing the tab resumes from
   your last rest via **Continue Descent**.
-- Round 2 hooks (`unlockedRegions`, `discoveredRegions`, `completedMiniRegion`,
-  `optionalEliteDefeated`, …) auto-initialize on older saves. If a saved checkpoint
-  room no longer exists, the game falls back to the nearest valid start.
+- Round 2 / Phase 3 hooks (`unlockedRegions`, `discoveredRegions`,
+  `completedMiniRegion`, `optionalEliteDefeated`, `completedReach`, and the
+  `tideRelic` / `brineHeart` upgrades) auto-initialize on older saves. If a saved
+  checkpoint room no longer exists, the game falls back to the nearest valid start.
 
 ---
 
@@ -240,6 +288,7 @@ src/
   content/             # DATA-DRIVEN content (add new acts/regions here)
     acts/act1.ts
     regions/rootwardRoad.ts
+    regions/saltblackReach.ts
     enemies/enemyDefinitions.ts
     bosses/bossDefinitions.ts
     items/itemDefinitions.ts
@@ -253,8 +302,8 @@ enemies, bosses, items, lore, and asset mappings.
 
 ## Credits
 
-- Art & audio: **Kenney** (kenney.nl) — *Tiny Dungeon*, *Tiny Town*, and
-  RPG/Impact/Interface/Music packs, all **CC0**. Crediting is voluntary and gladly
-  given.
+- Art & audio: **Kenney** (kenney.nl) — *Tiny Dungeon*, *Tiny Town*, *Tiny Battle*,
+  and RPG/Impact/Interface/Music packs, all **CC0**. Crediting is voluntary and
+  gladly given.
 - Engine, design, content, and the procedurally-drawn HUD icons were built for
   this project in TypeScript + Vite + Canvas.

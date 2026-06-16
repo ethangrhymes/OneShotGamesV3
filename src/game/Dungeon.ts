@@ -7,12 +7,12 @@
 import { TILE } from "./Balance";
 import type { DoorDef, RoomDef } from "./types";
 
-export type CellKind = "floor" | "wall" | "gargoyle" | "hazard" | "void";
+export type CellKind = "floor" | "wall" | "gargoyle" | "hazard" | "void" | "water" | "bridge";
 
 export interface Cell {
   kind: CellKind;
   solid: boolean;
-  variant: number; // for floor/wall variety
+  variant: number; // for floor/wall variety; for water: 0 = shallow, 1 = deep
   doorId?: string;
 }
 
@@ -35,8 +35,12 @@ export class Room {
   cells: Cell[][];
   doors: DoorRuntime[];
 
-  constructor(def: RoomDef, doorOpen: (d: DoorDef) => boolean) {
+  /** whether shallow tide-water is fordable right now (player holds the Tide Relic). */
+  tideUnlocked: boolean;
+
+  constructor(def: RoomDef, doorOpen: (d: DoorDef) => boolean, tideUnlocked = false) {
     this.def = def;
+    this.tideUnlocked = tideUnlocked;
     this.h = def.layout.length;
     this.w = def.layout[0].length;
     this.cells = [];
@@ -70,6 +74,15 @@ export class Room {
         return { kind: "gargoyle", solid: true, variant: 0 };
       case "~":
         return { kind: "hazard", solid: false, variant: 0 };
+      case "W":
+        // deep water — always solid (a drowned-coast border / moat)
+        return { kind: "water", solid: true, variant: 1 };
+      case "w":
+        // shallow tide — fordable only once the Tide Relic is held
+        return { kind: "water", solid: !this.tideUnlocked, variant: 0 };
+      case "B":
+        // bridge planks — always walkable, spans water
+        return { kind: "bridge", solid: false, variant: 0 };
       case ",":
         return { kind: "floor", solid: false, variant: 3 };
       case ".":
@@ -98,6 +111,21 @@ export class Room {
   setDoorOpen(id: string, open: boolean) {
     const d = this.doorRuntime(id);
     if (d) d.open = open;
+  }
+
+  /**
+   * Grant fording mid-room (player just picked up the Tide Relic): make every
+   * shallow tide cell walkable now, without rebuilding the room. Deep water is
+   * never affected. Idempotent.
+   */
+  unlockTide() {
+    if (this.tideUnlocked) return;
+    this.tideUnlocked = true;
+    for (const row of this.cells) {
+      for (const c of row) {
+        if (c.kind === "water" && c.variant === 0) c.solid = false;
+      }
+    }
   }
 
   /** Is the tile solid for movement right now (door state aware)? */

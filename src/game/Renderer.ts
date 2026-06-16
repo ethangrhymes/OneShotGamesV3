@@ -348,6 +348,9 @@ export class Renderer {
     switch (floor) {
       case "grass":
         return variant === 1 ? "tt_grass_b" : variant === 2 ? "tt_grass_flower" : variant === 3 ? "tt_path" : "tt_grass";
+      case "saltgrass":
+        // war-coast verge (Tiny Battle grass); variant 3 = stone causeway
+        return variant === 1 ? "tb_grass_b" : variant === 2 ? "tb_grass_flower" : variant === 3 ? "tb_road" : "tb_grass";
       case "path":
         return "tt_path";
       case "dirt":
@@ -378,6 +381,16 @@ export class Renderer {
   private drawCell(cell: Cell, room: Room, px: number, py: number, sz: number, tx: number, ty: number, time: number) {
     const ctx = this.ctx;
     const outdoor = room.def.theme === "outdoor";
+    if (cell.kind === "water") {
+      this.drawWater(cell.variant === 1, px, py, sz, tx, ty, time);
+      return;
+    }
+    if (cell.kind === "bridge") {
+      // water glints beneath, then the planks on top
+      this.drawWater(true, px, py, sz, tx, ty, time);
+      this.blit("tb_bridge", px, py, sz, sz) || this.fallbackBridge(px, py, sz);
+      return;
+    }
     if (cell.kind === "floor") {
       this.blit(this.floorKey(room.def.floor, cell.variant), px, py, sz, sz) || this.fallbackFloor(px, py, sz, room.def.floor);
     } else if (cell.kind === "wall") {
@@ -422,6 +435,49 @@ export class Renderer {
         ctx.globalAlpha = 1;
       }
     }
+  }
+
+  /**
+   * Tide-water. Deep water (deep=true) is a dark, slow, always-solid border/moat;
+   * shallow water is brighter with stepping-stone dapples that read as fordable
+   * (passable only with the Tide Relic). Kenney Tiny Battle tiles with a procedural
+   * animated fallback so it always renders.
+   */
+  private drawWater(deep: boolean, px: number, py: number, sz: number, tx: number, ty: number, time: number) {
+    const ctx = this.ctx;
+    if (!this.blit(deep ? "tb_water" : "tb_shallow", px, py, sz, sz)) {
+      ctx.fillStyle = deep ? "#1f4f6b" : "#3f93b0";
+      ctx.fillRect(px, py, sz, sz);
+    }
+    if (deep) {
+      ctx.fillStyle = "rgba(8,20,34,0.34)"; // depth darkening
+      ctx.fillRect(px, py, sz, sz);
+    }
+    // animated caustic band
+    const ph = time * (deep ? 1.1 : 1.8) + tx * 0.7 + ty * 0.9;
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    ctx.fillStyle = `rgba(180,225,245,${0.05 + 0.05 * Math.sin(ph)})`;
+    const yy = py + (0.25 + 0.5 * (0.5 + 0.5 * Math.sin(ph))) * sz;
+    ctx.fillRect(px, Math.round(yy), sz, Math.max(1, sz * 0.07));
+    ctx.restore();
+    if (!deep) {
+      // fordable dapples
+      ctx.fillStyle = "rgba(225,242,250,0.16)";
+      const d = Math.max(1, sz * 0.13);
+      ctx.fillRect(px + sz * 0.28, py + sz * 0.32, d, d);
+      ctx.fillRect(px + sz * 0.58, py + sz * 0.6, d, d);
+    }
+  }
+
+  private fallbackBridge(px: number, py: number, sz: number) {
+    const ctx = this.ctx;
+    ctx.fillStyle = "#7a5a36";
+    ctx.fillRect(px, py, sz, sz);
+    ctx.fillStyle = "rgba(0,0,0,0.25)";
+    for (let i = 0; i < 4; i++) ctx.fillRect(px, py + Math.round(i * sz * 0.28), sz, 1.5);
+    ctx.fillStyle = "rgba(255,235,200,0.12)";
+    ctx.fillRect(px, py, sz, 2);
   }
 
   private drawDoors(room: Room) {
@@ -576,14 +632,27 @@ export class Renderer {
         return "tt_stall";
       case "arch":
         return "tt_arch";
+      // war-coast (Tiny Battle) props
+      case "ship":
+        return "tb_ship";
+      case "flag":
+        return "tb_flag";
+      case "tower":
+        return "tb_keep";
+      case "dune":
+        return "tb_dune";
+      case "warcross":
+        return "tb_cross";
       default:
         return "barrel";
     }
   }
   private upgradeKey(ref?: string): string {
-    if (ref === "heartVessel") return "potion_red";
+    if (ref === "heartVessel" || ref === "brineHeart") return "potion_red";
     if (ref === "wardensEdge") return "sword";
     if (ref === "swiftBoots") return "potion_blue";
+    if (ref === "emberHeart") return "tt_relic";
+    if (ref === "tideRelic") return "ring"; // the drowned king's signet
     return "ring";
   }
 

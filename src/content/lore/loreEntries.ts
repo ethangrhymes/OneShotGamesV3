@@ -80,6 +80,48 @@ export const loreEntries: Record<string, LoreEntry> = {
   l_causeway: {
     id: "l_causeway",
     title: "At the Sealed Causeway",
-    text: "“Beyond this span: a drowned verge, an old king’s road, a buried sun. All sealed, for now. The Keep was one wound. The world has many. — Act II awaits.”",
+    text: "“Beyond this span: a drowned verge, an old king’s road, a buried sun. The bell-tokens you carry are bell enough — the seal is thinning. Step through. The Keep was one wound. The world has many.”",
+  },
+
+  // ---- Phase 3: The Saltblack Reach (a drowned war-coast) ----
+  l_reach_landing: {
+    id: "l_reach_landing",
+    title: "Cut into the Saltstair",
+    text: "“The road did not end at the causeway; it drowned. Below lies the Saltblack Reach, where a war sank mid-stride and never finished falling. Walk soft. The tide keeps the dead from settling.”",
+  },
+  l_strand: {
+    id: "l_strand",
+    title: "On the Black Strand",
+    text: "“Two banners still stand in the shallows, on poles no living hand has held in an age. They were enemies. The tide has made them neighbors. It will do the same to you, given long enough.”",
+  },
+  l_tideshrine: {
+    id: "l_tideshrine",
+    title: "At the Tide Shrine",
+    text: "“The drowned king wore a signet that asked the shallows to part, and they did, for he had paid the toll in sons. Take it. Wade where you could not wade. But know that the deep water keeps its own counsel — and its own drowned.”",
+  },
+  l_wreck: {
+    id: "l_wreck",
+    title: "In the Beached Hulk",
+    text: "“They ran her aground to make a wall of her. The wall held. The crew did not. What they guarded is still in the hold, and still warm, which is the worst of it.”",
+  },
+  l_spans: {
+    id: "l_spans",
+    title: "On the Broken Spans",
+    text: "“Bridges for the bell-carts, once. Now half of them are under, and the under-half is where the archers wait. Cross high, or ford low with the signet. Either way, cross fast.”",
+  },
+  l_lowtide: {
+    id: "l_lowtide",
+    title: "At Lowtide Muster",
+    text: "“This was a staging ground. You can still read the muster in the rust: who stood where, who never stood again. Raise the tide-gate winch and the way back opens — a kindness the war never offered.”",
+  },
+  l_drowned_gear: {
+    id: "l_drowned_gear",
+    title: "The Toll-Engine",
+    text: "“The toll was never coin. The Gear took a year of your life per crossing and called it fair. It has been collecting from the dead so long it has forgotten the dead have nothing left to give.”",
+  },
+  l_drowngate: {
+    id: "l_drowngate",
+    title: "At the Drowned Toll-Gate",
+    text: "“Past this gate the road climbs again, into a country of glass and buried suns where the curse wears a brighter face. The Gear is broken; the toll is paid. The gate is only sealed — and seals, you have learned, are made to be broken. — The road goes on.”",
   },
 };

@@ -77,7 +77,7 @@ export class World {
   enter(roomId: string, run: RunState): Room {
     const def = this.roomsById.get(roomId);
     if (!def) throw new Error("Unknown room: " + roomId);
-    this.current = new Room(def, (d) => this.isDoorOpen(d, run));
+    this.current = new Room(def, (d) => this.isDoorOpen(d, run), run.tideUnlocked);
     run.stats.roomsVisited.add(roomId);
     return this.current;
   }
@@ -86,7 +86,7 @@ export class World {
   build(roomId: string, run: RunState): Room {
     const def = this.roomsById.get(roomId);
     if (!def) throw new Error("Unknown room: " + roomId);
-    return new Room(def, (d) => this.isDoorOpen(d, run));
+    return new Room(def, (d) => this.isDoorOpen(d, run), run.tideUnlocked);
   }
 
   /** Where should the player stand after arriving through `door` in `room`? */

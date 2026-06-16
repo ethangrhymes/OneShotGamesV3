@@ -755,7 +755,13 @@ export function makeInteractable(s: SpawnDef): Interactable {
   const solid =
     s.solid ??
     (s.kind === "prop"
-      ? s.prop === "barrel" || s.prop === "crate" || s.prop === "statue" || s.prop === "anvil"
+      ? s.prop === "barrel" ||
+        s.prop === "crate" ||
+        s.prop === "statue" ||
+        s.prop === "anvil" ||
+        s.prop === "ship" ||
+        s.prop === "tower" ||
+        s.prop === "dune"
       : false);
   return {
     kind: s.kind,

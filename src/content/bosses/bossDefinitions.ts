@@ -34,6 +34,35 @@ export const bossDefinitions: Record<string, BossDef> = {
     ],
   },
 
+  // ----- Phase 3 miniboss: guards the Drowned Toll-Gate; drops the Brine Heart -----
+  drownedGear: {
+    id: "drownedGear",
+    name: "The Drowned Gear",
+    title: "Engine of the Toll",
+    sprite: "miniboss",
+    hp: 40,
+    contactDamage: 2,
+    speed: 50,
+    radius: 12,
+    scale: 2.0,
+    fallbackColor: "#5a8a9a",
+    embers: 60,
+    isMiniboss: true,
+    introLine: "The toll-engine grinds awake in the shallows. It still means to collect.",
+    phaseLine: "Salt-water screams through its gears — it spins faster, sloppier, hungrier.",
+    defeatLine: "The Drowned Gear seizes and sinks. A brine-pickled heart rolls free of its housing.",
+    setsFlag: "tollGearDefeated",
+    reward: { upgrade: "brineHeart", embers: 30 },
+    patterns: [
+      // gear-spray: a wide telegraphed volley of cog-shot
+      { id: "grind", kind: "volley", telegraph: 0.7, recovery: 0.6, cooldown: 3.2, damage: 1 },
+      // tide-slam: a big expanding ring as it stamps the shallows
+      { id: "tideslam", kind: "shockwave", telegraph: 0.85, recovery: 0.7, cooldown: 4.6, damage: 2 },
+      // ram: a short telegraphed charge down its rail
+      { id: "ram", kind: "charge", telegraph: 0.55, recovery: 0.55, cooldown: 3.0, damage: 2 },
+    ],
+  },
+
   // ----- Final boss: The Hollow Warden -----
   warden: {
     id: "warden",

@@ -32,6 +32,7 @@ function defaults(): SaveData {
     round2VisitedWorldGate: false,
     optionalEliteDefeated: false,
     audioModeVersion: 2,
+    completedReach: false,
   };
 }
 

@@ -66,7 +66,14 @@ A `RoomDef` (see examples in [`src/content/acts/act1.ts`](src/content/acts/act1.
 | `,` | floor variant (decorative inlay) |
 | `~` | hazard tile (spikes — damages on contact, passable) |
 | `=` | gargoyle wall (solid decor) |
+| `W` | **deep water** — always solid (a border / moat / gulf) |
+| `w` | **shallow tide** — solid until the player holds the **Tide Relic**, then fordable |
+| `B` | **bridge** planks — always walkable, spans water |
 | (space) | void / outside the room |
+
+`floor` styles: `stone` / `dirt` / `tile` / `grass` / `path` / `saltgrass` (the
+war-coast verge). `wall` styles: `brick` / `stone` / `townstone` / `redbrick` /
+`wood` / `hedge`. `music`: `explore` / `boss` / `region` / `reach`.
 
 Door openings on the wall border are **carved automatically** from each door's
 `(tx, ty)` — don't punch holes in the border yourself; just place the door.
@@ -129,6 +136,34 @@ the run. The critical path should rely on **seals/flags**, which are guaranteed.
 A good shortcut reconnects a deep area back to a checkpoint hub so the runback after a
 death/boss attempt is shorter — Act 1's lever in the Long Descent opens the
 Well↔Shrine portcullis.
+
+---
+
+## The Tide — a mechanic-gated traversal example (Phase 3)
+
+The Saltblack Reach adds **terrain that an upgrade unlocks**, a self-contained pattern
+you can copy for future mechanics (lava + a charm, root-walls + an ember, etc.):
+
+1. **Three water/bridge tiles** in the layout (see the legend): `W` deep (always
+   solid), `w` shallow (solid until the relic), `B` bridge (always walkable). These
+   are real `CellKind`s in [`Dungeon.ts`](src/game/Dungeon.ts); `Room.makeCell`
+   reads `Room.tideUnlocked` (threaded in by `World.enter` from `run.tideUnlocked`)
+   to decide whether `w` is solid this build. `Room.unlockTide()` flips shallow cells
+   walkable mid-room the instant the relic is picked up (no re-enter needed).
+2. **The unlocking upgrade** is just an `UpgradeId` (`tideRelic`) with a derived
+   getter (`RunState.tideUnlocked`). `Game.grantUpgrade` special-cases it to call
+   `world.current.unlockTide()`. Add a new mechanic the same way: a new `UpgradeId`,
+   a new tile char + `CellKind`, and the gate check.
+3. **Design rules that keep it fair & validator-safe:**
+   - The unlocking upgrade must be reachable **without** using the mechanic (the Tide
+     Relic sits at the Tide Shrine, reachable over land — never behind a ford).
+   - Fords may gate **only optional dead-ends or redundant alt-routes** — never the
+     critical path or a shortcut. The critical path crosses on **bridges**.
+   - Door **entry tiles** must be solid ground (floor/bridge), never water.
+4. **The validator proves both halves automatically** (see "Validating room
+   traversal"): a *with-fording* flood (shallow walkable) confirms every spawn is
+   reachable, and a *without-fording* flood (shallow + deep blocked) confirms every
+   door still reaches every other door — so a missing relic can never soft-lock you.
 
 ---
 
@@ -249,10 +284,11 @@ Sprites are referenced by **semantic key** (e.g. `"player"`, `"enemy_wraith"`,
 
 To add a new sprite:
 
-1. Edit `tileSelection`/`townSelection` (or `audioSelection`) in
-   [`scripts/prepare-assets.mjs`](scripts/prepare-assets.mjs) — map a new
-   `"semantic_name.png"` to a tile index in its pack (each pack is a 12×11 grid,
-   indices 0–131; indices are documented inline).
+1. Edit `tileSelection` / `townSelection` / `battleSelection` (or `audioSelection`)
+   in [`scripts/prepare-assets.mjs`](scripts/prepare-assets.mjs) — map a new
+   `"semantic_name.png"` to a tile index in its pack. Tiny Dungeon and Tiny Town are
+   12-column grids (132 tiles, 0–131); **Tiny Battle is an 18-column grid (198 tiles,
+   0–197)** — `index = row * columns + col`. Indices are documented inline.
 2. Run `node scripts/prepare-assets.mjs` to copy it and regenerate `manifest.json`.
 3. Reference `"semantic_name"` from a def's `sprite` field, and add a procedural
    fallback in `Renderer.ts` if it's a brand-new category.
@@ -298,8 +334,16 @@ A region is a `RegionDef` (id, name, theme, `accent` minimap color, `startRoomId
 4. **Region banner & minimap** are automatic: `World.regionOf(roomId)` drives the
    region-grouped, `accent`-colored minimap and the "New region discovered" banner.
 5. **Endpoint:** to end a region with a teaser screen, place a `prop` with a known
-   `uid` (we use `act2_gate`) and handle it in `Game.doInteract` → a completion state
-   (we added `regionComplete` + `UI.drawRegionComplete`). Copy that pattern for Act II.
+   `uid` (the Reach uses `deep_gate`; the renderer glows `prop: "arch"`) and handle it
+   in `Game.doInteract` → the `regionComplete` state + `UI.drawRegionComplete`, the
+   journey-progress card that ticks off cleared world segments and names the next
+   sealed one. Copy that pattern for the next region.
+
+Two `RegionDef` examples to crib from:
+[`rootwardRoad.ts`](src/content/regions/rootwardRoad.ts) (a linear outdoor road) and
+[`saltblackReach.ts`](src/content/regions/saltblackReach.ts) (a spine with N/S
+branches plus the tide mechanic). The Reach is reached by an **open** door east out of
+`rr_causeway` — reaching the causeway already gates it, so no extra flag is needed.
 
 ### Adding post-boss / future-gate content
 
@@ -320,15 +364,22 @@ dev** (`import.meta.env.DEV`). It:
   **entry tile is passable**;
 - runs a monotonic reachability fixpoint (keys/seals/flags/levers/boss-flags) and
   errors if **any room is unreachable**, if the **boss room needs a consumable key**
-  (critical path must be key-free), or if **seals are short** for a boss gate.
+  (critical path must be key-free), or if **seals are short** for a boss gate;
+- is **tide-aware**: per room it floods twice — *with fording* (shallow `w` walkable)
+  to prove every door/spawn is reachable, and *without fording* (shallow + deep both
+  block) to prove every door still reaches every other door. So ford-gated loot
+  validates, **and** a missing Tide Relic can never seal off the critical path. It
+  also errors on a non-prop spawn sitting in **deep water**.
 
 In production it does not run (shipped content is pre-validated), so players never
 crash on it. To read the output, open the browser console after `npm run dev` — a
 clean act logs `✓ "<act>" passed`.
 
-**Debug overlay:** press **F2** in-game to toggle a collision overlay with spawn
-markers, enemy behavior labels, and door lock/target labels — invaluable for spotting
-a spawn in a wall or a door that won't open.
+**Debug overlays (dev, key-only — never shown in the mobile UI):** **F2** toggles a
+collision overlay with spawn markers, enemy behavior labels, and door lock/target
+labels — invaluable for spotting a spawn in a wall or a door that won't open. **F3**
+shows a region/room/flags/upgrades text panel. **F4** warps between already-visited
+checkpoints for fast testing.
 
 Defining room entrances/exits safely:
 
@@ -342,13 +393,16 @@ Defining room entrances/exits safely:
 ## Adding darker / adaptive music states
 
 Music is scene-based. `Game.updateMusic()` (called on room entry and every frame)
-picks a **biome** (`explore` / `boss` / `region` from `room.music`), marks **safe**
-rooms (`room.isSafe`), and computes a **combat** intensity (nearby aggroed enemies /
-boss phase). It calls `audio.setMusicScene(biome, safe, combat)`.
+picks a **biome** (`explore` / `boss` / `region` / `reach` from `room.music`; a live
+boss always forces `boss`), marks **safe** rooms (`room.isSafe`), and computes a
+**combat** intensity (nearby aggroed enemies / boss phase). It calls
+`audio.setMusicScene(biome, safe, combat)`.
 
-- To add a region's ambience, set its rooms' `music: "region"` and (optionally) add a
-  `music_region2.ogg` candidate in `prepare-assets.mjs`. With no clip, the synth drone
-  in `AudioManager.startDrone` plays — tune its root/intervals/bells for a new mood.
+- To add a region's ambience, set its rooms' `music` to a biome and (optionally) add a
+  matching clip candidate in `prepare-assets.mjs` (`music_region2.ogg`,
+  `music_reach.ogg`, …). With no clip, the synth drone in `AudioManager.startDrone`
+  plays — give the biome its own root/intervals/bells. The Reach uses a deep E1 root
+  with a beating minor-second for a drowned, tidal hush.
 - The **combat layer** (`AudioManager.startCombatLayer`) is a dark pulse gated by
   `combatGain`; it fades in via `combatTarget`. Keep new layers quiet — "darker, not
   louder." Everything is synth-backed, so it never crashes if `.ogg` won't decode.

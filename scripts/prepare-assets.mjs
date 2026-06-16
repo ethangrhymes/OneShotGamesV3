@@ -177,6 +177,47 @@ const townSelection = {
   "tt_relic.png": 94, // gold ring — the Bell Token relic
 };
 
+// ----- Tile selection — pack 3: Tiny Battle ---------------------------------
+// Phase 3 region "The Saltblack Reach": a drowned war-coast stitched into the
+// cursed road. Tiny Battle is an Advance-Wars-style 16x16 pack (same scale/style
+// as Tiny Dungeon/Town, individual per-tile PNGs) whose water, coasts, bridges,
+// ruined keeps, banners, beached ships and a crossed-blade war-marker make a
+// distinct, readable tidal-battlefield identity. Keys are prefixed "tb_". Indices
+// were derived by inspecting the pack's 18-column tilemap (198 tiles).
+const TINY_BATTLE = (idx) =>
+  bundle
+    ? path.join(bundle, "2D assets", "Tiny Battle", "Tiles", `tile_${String(idx).padStart(4, "0")}.png`)
+    : null;
+
+const battleSelection = {
+  // --- terrain / shore ---
+  "tb_grass.png": 0,
+  "tb_grass_b.png": 1,
+  "tb_grass_flower.png": 2, // ember-orange blooms
+  "tb_shore.png": 3, // grass/water cove edge
+  // --- water (the Tide) ---
+  "tb_water.png": 38, // deep open water
+  "tb_water_b.png": 56, // deep water variant
+  "tb_water_grass.png": 90, // water with a grass shore
+  "tb_shallow.png": 93, // shoal / fordable shallow
+  // --- crossings ---
+  "tb_bridge.png": 130, // plank bridge (used for spans in any orientation)
+  "tb_ford.png": 74, // brown ford planks
+  "tb_road.png": 110, // stone causeway piece
+  // --- nature ---
+  "tb_tree.png": 112,
+  "tb_forest.png": 113,
+  "tb_dune.png": 5, // tan cairn / dune
+  // --- war ruins / props ---
+  "tb_cross.png": 23, // crossed-blade grave marker
+  "tb_keep.png": 14, // ruined keep / watchtower
+  "tb_bastion.png": 13, // bunker / redoubt
+  "tb_flag.png": 17, // drowned banner (grey)
+  "tb_flag_blue.png": 53,
+  "tb_ship.png": 122, // beached warship hull
+  "tb_lock.png": 193, // padlock — sealed deep-gate icon
+};
+
 // ----- Audio selection -------------------------------------------------------
 // destFile -> ordered list of candidate source relative paths (under <bundle>).
 // First existing candidate wins; if none exist the game uses its Web Audio synth.
@@ -216,6 +257,13 @@ const audioSelection = {
     "Audio/Music Loops/Loops/Sad Town.ogg",
     "Audio/Music Loops/Retro/Retro Mystic.ogg",
   ],
+  // tidal, drowned ambience for the Phase 3 region "The Saltblack Reach"
+  "music_reach.ogg": [
+    "Audio/Music Loops/Loops/Ocean of Sadness.ogg",
+    "Audio/Music Loops/Loops/Flowing Rocks.ogg",
+    "Audio/Music Loops/Loops/Sad Descent.ogg",
+    "Audio/Music Loops/Retro/Retro Mystic.ogg",
+  ],
 };
 
 // ----- run -------------------------------------------------------------------
@@ -236,7 +284,9 @@ const manifest = {
   artDirection:
     "16x16 top-down, CC0. Act I (The Sunken Keep) = Kenney Tiny Dungeon. " +
     "Round 2 region (The Rootward Road) = Kenney Tiny Town (tt_* keys). " +
-    "Two cohesive same-scale packs used as distinct cursed regions.",
+    "Phase 3 region (The Saltblack Reach) = Kenney Tiny Battle (tb_* keys) — " +
+    "a drowned war-coast. Three cohesive same-scale packs used as distinct " +
+    "cursed regions stitched together by the spreading curse.",
   bundleFound: !!bundle,
   bundlePath: bundle ? path.basename(bundle) : null,
   tileSize: 16,
@@ -282,6 +332,21 @@ if (!bundle) {
       fs.copyFileSync(src, path.join(tilesOut, dest));
       manifest.tiles[dest] = {
         pack: "2D assets/Tiny Town",
+        tile: `tile_${String(idx).padStart(4, "0")}.png`,
+        index: idx,
+      };
+      copiedTiles++;
+    } else {
+      manifest.missing.push({ category: "tile", dest, wantedIndex: idx });
+    }
+  }
+
+  for (const [dest, idx] of Object.entries(battleSelection)) {
+    const src = TINY_BATTLE(idx);
+    if (src && fs.existsSync(src)) {
+      fs.copyFileSync(src, path.join(tilesOut, dest));
+      manifest.tiles[dest] = {
+        pack: "2D assets/Tiny Battle",
         tile: `tile_${String(idx).padStart(4, "0")}.png`,
         index: idx,
       };

@@ -21,6 +21,7 @@ import { bossDefinitions } from "../bosses/bossDefinitions";
 import { itemDefinitions } from "../items/itemDefinitions";
 import { loreEntries } from "../lore/loreEntries";
 import { rootwardRoad } from "../regions/rootwardRoad";
+import { saltblackReach } from "../regions/saltblackReach";
 
 const rooms: RoomDef[] = [
   // ---------------------------------------------------------------- gate
@@ -671,6 +672,8 @@ export const act1: WorldAct = {
     },
     // Round 2 expansion region — reached through the summit world-gate.
     rootwardRoad,
+    // Phase 3 expansion region — reached east through the Rootward causeway.
+    saltblackReach,
   ],
 };
 
