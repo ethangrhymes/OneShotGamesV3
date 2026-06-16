@@ -22,6 +22,8 @@ import type { Sfx } from "./AudioManager";
 
 export interface CombatHooks {
   spawnProjectile(x: number, y: number, vx: number, vy: number, fromBoss: boolean, damage: number): void;
+  /** a ranged Vessel looses its attack (staff bolt / arrow) along a unit dir. */
+  playerShot(x: number, y: number, dirX: number, dirY: number): void;
   spawnAdd(defId: string, x: number, y: number): void;
   aoe(x: number, y: number, telegraph: number, radius: number, growFrom: number, damage: number): void;
   shake(amount: number): void;
@@ -125,14 +127,17 @@ export class Player {
 
     // attack
     if (input.attack.pressed && this.attackCdT <= 0 && !this.dashing) {
-      this.attackT = B.attackDuration;
-      this.attackCdT = B.attackCooldown;
+      this.attackT = this.run.attackDuration;
+      this.attackCdT = this.run.attackCooldown;
       this.swingHits.clear();
       this.attackJustStarted = true;
       if (moving) {
         this.aimX = mx;
         this.aimY = my;
       }
+      // Ranged Vessels (staff/bow) loose a projectile along their aim instead of
+      // a melee swing; melee resolution is skipped for them in Combat.ts.
+      if (this.run.isRanged) hooks.playerShot(this.x, this.y, this.aimX, this.aimY);
       hooks.sfx("attack");
     }
 
@@ -143,8 +148,8 @@ export class Player {
       vx = this.dashVX;
       vy = this.dashVY;
     } else {
-      vx = mx * B.speed * (moving ? 1 : 0);
-      vy = my * B.speed * (moving ? 1 : 0);
+      vx = mx * this.run.moveSpeed * (moving ? 1 : 0);
+      vy = my * this.run.moveSpeed * (moving ? 1 : 0);
     }
     // knockback (decays)
     vx += this.kbX;
@@ -188,7 +193,7 @@ export class Player {
     const tAng = Math.atan2(dy, dx);
     let diff = Math.abs(aimAng - tAng);
     if (diff > Math.PI) diff = Math.PI * 2 - diff;
-    return diff <= Balance.player.attackArc / 2;
+    return diff <= this.run.attackArc / 2;
   }
 }
 
@@ -470,19 +475,22 @@ export class Boss {
   bob = 0;
   /** signals to Game */
   justEnraged = false;
+  /** difficulty scale applied to all of this boss's outgoing damage. */
+  dmgScale: number;
 
-  constructor(def: BossDef, x: number, y: number, hpScale = 1) {
+  constructor(def: BossDef, x: number, y: number, hpScale = 1, dmgScale = 1) {
     this.def = def;
     this.x = x;
     this.y = y;
     this.maxHp = Math.round(def.hp * hpScale);
     this.hp = this.maxHp;
     this.radius = def.radius;
+    this.dmgScale = dmgScale;
     for (const p of def.patterns) this.cooldowns[p.id] = p.cooldown * 0.4;
   }
 
   get contactDamage(): number {
-    return this.def.contactDamage;
+    return Math.max(1, Math.round(this.def.contactDamage * this.dmgScale));
   }
 
   update(dt: number, player: Player, room: Room, hooks: CombatHooks) {
@@ -600,14 +608,16 @@ export class Boss {
   }
 
   private executePattern(p: BossDef["patterns"][number], player: Player, hooks: CombatHooks, speedMul: number) {
+    // difficulty-scaled outgoing damage (Easy softens boss hits; Hard sharpens them)
+    const pd = Math.max(1, Math.round(p.damage * this.dmgScale));
     switch (p.kind) {
       case "slam":
         // warning ring, then the slam lands
-        hooks.aoe(this.x, this.y, 0.32, this.radius + 30, this.radius, p.damage);
+        hooks.aoe(this.x, this.y, 0.32, this.radius + 30, this.radius, pd);
         hooks.sfx("attack");
         break;
       case "shockwave":
-        hooks.aoe(this.x, this.y, 0.45, this.radius + 70, this.radius + 10, p.damage);
+        hooks.aoe(this.x, this.y, 0.45, this.radius + 70, this.radius + 10, pd);
         hooks.sfx("attack");
         break;
       case "volley": {
@@ -616,7 +626,7 @@ export class Boss {
         const ps = 130 * speedMul;
         for (let i = 0; i < n; i++) {
           const a = base + (i - (n - 1) / 2) * 0.22;
-          hooks.spawnProjectile(this.x, this.y, Math.cos(a) * ps, Math.sin(a) * ps, true, p.damage);
+          hooks.spawnProjectile(this.x, this.y, Math.cos(a) * ps, Math.sin(a) * ps, true, pd);
         }
         hooks.sfx("attack");
         break;
@@ -665,18 +675,26 @@ export class Projectile {
   vy: number;
   radius = Balance.combat.projectileRadius;
   fromBoss: boolean;
+  /** player-owned shot (staff bolt / arrow) — hits enemies, not the player. */
+  friendly: boolean;
   damage: number;
+  /** extra enemies a friendly shot passes through before dying. */
+  pierce: number;
+  /** enemies/boss already struck (so a piercing shot hits each once). */
+  hits = new Set<unknown>();
   life = 4;
   alive = true;
   spin = 0;
 
-  constructor(x: number, y: number, vx: number, vy: number, fromBoss: boolean, damage: number) {
+  constructor(x: number, y: number, vx: number, vy: number, fromBoss: boolean, damage: number, friendly = false, pierce = 0) {
     this.x = x;
     this.y = y;
     this.vx = vx;
     this.vy = vy;
     this.fromBoss = fromBoss;
+    this.friendly = friendly;
     this.damage = damage;
+    this.pierce = pierce;
   }
 
   update(dt: number, room: Room) {

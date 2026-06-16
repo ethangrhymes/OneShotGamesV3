@@ -215,6 +215,54 @@ checkpoint a unique `uid`.
 
 ---
 
+## Playable characters (Vessels)
+
+The 10 heroes live in
+[`src/content/characters/characterDefinitions.ts`](src/content/characters/characterDefinitions.ts)
+as a `CharacterDef[]`. The Ember chooses one on the character-select screen and may swap at
+any Emberlight; the engine never hard-codes a hero. To add or retune one, edit that array —
+nothing else needs to change.
+
+```ts
+{
+  id: "myhero", name: "The Whatever", role: "Bruiser · Maul",
+  sprite: "pc_myhero",        // an AssetManager key (add it to prepare-assets.mjs)
+  weapon: "hammer",           // shape drawn procedurally (see Renderer.drawWeaponShape)
+  style: "swing",             // motion: "swing" | "thrust" | "spin" | "cast"
+  color: "#ffcf5a",           // weapon glow + UI accent
+  blurb: "One line of flavour for the select screen.",
+  perkName: "Signature", perkDesc: "What the perk does, in one line.",
+  // combat profile — × multipliers on Balance.player unless noted; `damage` is absolute pips
+  damage: 2, reachMult: 1.0, arcMult: 1.1, cooldownMult: 1.3, speedMult: 0.9,
+  enemyKnockbackMult: 1.8,
+  // ranged Vessels set style:"cast" + a `ranged` block (then they have NO melee):
+  // ranged: { projectileSpeed: 240, pierce: 1, shots: 1, spread: 0.16 },
+  // passive perks (all optional):
+  heartsBonus: 1, dashCooldownMult: 0.8, iframeBonus: 0.2, knockbackResist: 0.6,
+  lifestealChance: 0.3,
+}
+```
+
+How it threads through the engine:
+
+- **`RunState` is the single seam.** `run.character` drives `moveSpeed`, `attackReach`,
+  `attackArc`, `attackDuration`, `attackCooldown`, `attackDamage`, `enemyKnockback`,
+  `maxHearts`, `iframeMult`, `knockbackMult`, `dashCooldown`, `isRanged` and
+  `lifestealChance`. Add a new stat there if a perk needs one.
+- **Weapon look + motion** are procedural in `Renderer` (`drawWeaponShape` for the shape,
+  `drawWeaponPosed` for swing/thrust/spin/cast). A new `weapon` value just needs a `case`
+  in `drawWeaponShape`; a new `style` needs a branch in `drawWeaponPosed`. No sprites needed.
+- **Ranged** Vessels (`style: "cast"`) loose friendly `Projectile`s via `Game.playerShot`;
+  `Combat.updateProjectiles` resolves them against enemies/boss (with `pierce`). Melee
+  resolution is skipped for them.
+- **Sprites** are the only new asset: add a `pc_*` entry in `prepare-assets.mjs` (Tiny
+  Dungeon has many front-facing figures — **ground-check the index** with a contact sheet),
+  re-run it, then point `sprite` at the key. The procedural weapon needs no art.
+- Keep one Vessel beginner-friendly and list it first (the select screen flags index 0 as
+  "Recommended"). Save/restore is automatic — `characterId` is in the run snapshot + save.
+
+---
+
 ## Enemies
 
 Add an `EnemyDef` to [`src/content/enemies/enemyDefinitions.ts`](src/content/enemies/enemyDefinitions.ts)

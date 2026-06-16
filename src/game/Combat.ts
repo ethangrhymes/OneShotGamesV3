@@ -4,7 +4,6 @@
  * the CombatHooks (for fx/sound) and a CombatCallbacks bundle for consequences
  * (embers, kills, game over).
  */
-import { Balance } from "./Balance";
 import type { Boss, CombatHooks, Enemy, Hazard, Player, Projectile } from "./Entities";
 
 export interface CombatCallbacks {
@@ -27,13 +26,16 @@ export function resolvePlayerAttack(
   cb: CombatCallbacks
 ): void {
   if (!player.attacking) return;
+  // Ranged Vessels (staff/bow) deal damage only through their projectiles.
+  if (player.run.isRanged) return;
   const dmg = player.run.attackDamage;
+  const kb = player.run.enemyKnockback;
 
   for (const e of enemies) {
     if (!e.alive || player.swingHits.has(e)) continue;
     if (player.swingHitsPoint(e.x, e.y, e.radius)) {
       player.swingHits.add(e);
-      const killed = e.hurt(dmg, player.x, player.y, Balance.combat.enemyKnockback);
+      const killed = e.hurt(dmg, player.x, player.y, kb);
       hooks.sfx("hit");
       hooks.burst(e.x, e.y, e.def.fallbackColor, killed ? 12 : 5);
       if (killed) cb.onEnemyKilled(e);
@@ -90,12 +92,52 @@ export function updateProjectiles(
   projectiles: Projectile[],
   room: import("./Dungeon").Room,
   player: Player,
+  enemies: Enemy[],
+  boss: Boss | null,
   hooks: CombatHooks,
   cb: CombatCallbacks
 ): void {
   for (const p of projectiles) {
     p.update(dt, room);
     if (!p.alive) continue;
+
+    if (p.friendly) {
+      // player-owned shot (Embermage bolt / Wayfarer arrow): hits enemies + boss,
+      // passing through up to `pierce` of them. Knockback pushes along travel.
+      const kbX = p.x - p.vx;
+      const kbY = p.y - p.vy;
+      const kb = player.run.enemyKnockback * 0.6;
+      for (const e of enemies) {
+        if (!e.alive || p.hits.has(e)) continue;
+        if (dist(p.x, p.y, e.x, e.y) < p.radius + e.radius) {
+          p.hits.add(e);
+          const killed = e.hurt(p.damage, kbX, kbY, kb);
+          hooks.sfx("hit");
+          hooks.burst(e.x, e.y, e.def.fallbackColor, killed ? 12 : 5);
+          if (killed) cb.onEnemyKilled(e);
+          if (p.pierce > 0) p.pierce--;
+          else {
+            p.alive = false;
+            break;
+          }
+        }
+      }
+      if (p.alive && boss && boss.alive && boss.phase !== "intro" && !p.hits.has(boss)) {
+        if (dist(p.x, p.y, boss.x, boss.y) < p.radius + boss.radius * 1.1) {
+          p.hits.add(boss);
+          const killed = boss.hurt(p.damage, p.x, p.y);
+          hooks.sfx("bosshit");
+          hooks.burst(boss.x, boss.y, boss.def.fallbackColor, killed ? 22 : 6);
+          cb.onBossDamaged(boss);
+          if (killed) cb.onBossKilled(boss);
+          if (p.pierce > 0) p.pierce--;
+          else p.alive = false;
+        }
+      }
+      continue;
+    }
+
+    // enemy projectile → damages the player
     if (!player.invulnerable && dist(player.x, player.y, p.x, p.y) < player.radius + p.radius) {
       const r = player.hurt(p.damage, p.x, p.y);
       p.alive = false;

@@ -253,6 +253,27 @@ const skiSelection = {
   "sk_yeti.png": 81, // white → glass golem
 };
 
+// ----- Tile selection — playable characters (Tiny Dungeon) ------------------
+// The 10 playable "Vessels" the Ember can wear (chosen on the character-select
+// screen and swapped at any Emberlight). All are individual front-facing Tiny
+// Dungeon figures so they share the hero outline + 16x16 scale; each is paired
+// in-engine with a DISTINCT procedural weapon (sword/axe/spear/staff/bow/…) that
+// animates on attack, plus its own attack profile + perk. Keys are prefixed
+// "pc_". Indices were verified against a labelled contact sheet (several Tiny
+// figures sit one row above the digit/number tiles — easy to mis-index).
+const pcSelection = {
+  "pc_warden.png": 112, // green adventurer — sword (balanced, +1 heart)
+  "pc_sentinel.png": 97, // silver knight — warhammer (tank, +2 hearts)
+  "pc_reaver.png": 88, // broad brawler — axe (heavy, big knockback)
+  "pc_lancer.png": 98, // militia spearman — spear (long thrust, cleave)
+  "pc_duelist.png": 85, // light fighter — daggers (fast, fleet)
+  "pc_embermage.png": 84, // purple wizard — staff (ranged ember-bolts)
+  "pc_wayfarer.png": 99, // cloaked archer — bow (ranged, piercing)
+  "pc_revenant.png": 111, // hooded reaper — scythe (lifesteal on kill)
+  "pc_adept.png": 100, // blue sage — quarterstaff (360° whirl)
+  "pc_saltblade.png": 87, // white-haired veteran — cutlass (fast combo)
+};
+
 // ----- Audio selection -------------------------------------------------------
 // destFile -> ordered list of candidate source relative paths (under <bundle>).
 // First existing candidate wins; if none exist the game uses its Web Audio synth.
@@ -330,7 +351,9 @@ const manifest = {
     "a drowned war-coast. Phase 4 region (The Glass Country) = Kenney Tiny Ski " +
     "(sk_* keys) for bright glass/ice terrain, with crystals/mirrors/portals/" +
     "lens-beams/buried-sun drawn procedurally on top. Four cohesive same-scale " +
-    "packs used as distinct cursed regions stitched together by the spreading curse.",
+    "packs used as distinct cursed regions stitched together by the spreading curse. " +
+    "Ten playable 'Vessels' (pc_* keys) are individual Tiny Dungeon figures, each " +
+    "paired with a procedural animated weapon + perk (character-select / checkpoint swap).",
   bundleFound: !!bundle,
   bundlePath: bundle ? path.basename(bundle) : null,
   tileSize: 16,
@@ -406,6 +429,21 @@ if (!bundle) {
       fs.copyFileSync(src, path.join(tilesOut, dest));
       manifest.tiles[dest] = {
         pack: "2D assets/Tiny Ski",
+        tile: `tile_${String(idx).padStart(4, "0")}.png`,
+        index: idx,
+      };
+      copiedTiles++;
+    } else {
+      manifest.missing.push({ category: "tile", dest, wantedIndex: idx });
+    }
+  }
+
+  for (const [dest, idx] of Object.entries(pcSelection)) {
+    const src = TINY_DUNGEON(idx);
+    if (src && fs.existsSync(src)) {
+      fs.copyFileSync(src, path.join(tilesOut, dest));
+      manifest.tiles[dest] = {
+        pack: "2D assets/Tiny Dungeon",
         tile: `tile_${String(idx).padStart(4, "0")}.png`,
         index: idx,
       };

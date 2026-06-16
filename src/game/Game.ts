@@ -37,11 +37,13 @@ import { discoverLore } from "./Lore";
 import { runValidation } from "./Validator";
 import { Balance, TILE, type DifficultyMode } from "./Balance";
 import act1 from "../content/acts/act1";
-import type { ChestContents } from "./types";
+import { characters, characterById } from "../content/characters/characterDefinitions";
+import type { ChestContents, CharacterDef } from "./types";
 
 type State =
   | "loading"
   | "title"
+  | "characterSelect"
   | "controls"
   | "playing"
   | "transition"
@@ -85,6 +87,10 @@ export class Game implements CombatHooks, CombatCallbacks {
   time = 0;
   fade = 0;
   difficulty: DifficultyMode = "normal";
+  /** working selection on the character-select screen (index into the roster). */
+  private charSelectIdx = 0;
+  /** whether confirming character-select starts a new run or swaps mid-run. */
+  private charSelectMode: "new" | "swap" = "new";
   debug = false;
   debugText = false;
   private warpIdx = 0;
@@ -185,7 +191,7 @@ export class Game implements CombatHooks, CombatCallbacks {
 
   newRun() {
     this.save.clearRun();
-    this.run = new RunState(this.difficulty);
+    this.run = new RunState(this.difficulty, characterById(this.save.data.characterId));
     this.run.stats.startTime = performance.now();
     this.currentRegionId = "";
     this.save.data.discoveredRegions = ["sunken_keep"];
@@ -204,7 +210,7 @@ export class Game implements CombatHooks, CombatCallbacks {
       this.newRun();
       return;
     }
-    this.run = RunState.restore(snap);
+    this.run = RunState.restore(snap, characterById(snap.characterId ?? this.save.data.characterId));
     this.run.stats.startTime = performance.now();
     // Continuing always resumes rested at the last Emberlight.
     this.run.fullHeal();
@@ -273,7 +279,7 @@ export class Game implements CombatHooks, CombatCallbacks {
         if (edef) this.enemies.push(new Enemy(edef, c.x, c.y, scales.enemyHp, scales.enemyDamage, scales.enemySpeed, scales.aggroMult));
       } else if (s.kind === "miniboss" || s.kind === "boss") {
         const bdef = this.world.act.bosses[s.ref!];
-        if (bdef) this.boss = new Boss(bdef, c.x, c.y, scales.bossHp);
+        if (bdef) this.boss = new Boss(bdef, c.x, c.y, scales.bossHp, scales.bossDamage);
       } else {
         const it = makeInteractable(s);
         this.interactables.push(it);
@@ -398,6 +404,28 @@ export class Game implements CombatHooks, CombatCallbacks {
   spawnProjectile(x: number, y: number, vx: number, vy: number, fromBoss: boolean, damage: number): void {
     this.projectiles.push(new Projectile(x, y, vx, vy, fromBoss, damage));
   }
+  /** A ranged Vessel looses its attack (staff bolt / arrow) along a unit dir. */
+  playerShot(x: number, y: number, dirX: number, dirY: number): void {
+    const rg = this.run.character.ranged;
+    if (!rg) return;
+    const m = Math.hypot(dirX, dirY) || 1;
+    const ux = dirX / m;
+    const uy = dirY / m;
+    const base = Math.atan2(uy, ux);
+    const shots = rg.shots ?? 1;
+    const spread = rg.spread ?? 0.16;
+    const dmg = this.run.attackDamage;
+    // spawn just in front so the shot never appears inside the player
+    const sx = x + ux * 10;
+    const sy = y + uy * 10;
+    for (let i = 0; i < shots; i++) {
+      const a = base + (i - (shots - 1) / 2) * spread;
+      this.projectiles.push(
+        new Projectile(sx, sy, Math.cos(a) * rg.projectileSpeed, Math.sin(a) * rg.projectileSpeed, false, dmg, true, rg.pierce ?? 0)
+      );
+    }
+    this.burst(sx, sy, this.run.character.color, 5);
+  }
   spawnAdd(defId: string, x: number, y: number): void {
     const edef = this.world.act.enemies[defId];
     if (edef && this.enemies.length < 30) {
@@ -435,6 +463,12 @@ export class Game implements CombatHooks, CombatCallbacks {
     this.run.stats.enemiesDefeated++;
     this.run.addEmbers(e.def.embers);
     this.spawnEmberDrops(e.x, e.y, e.def.embers);
+    // Revenant's Harvest — a reaped foe may mend a wound
+    if (this.run.lifestealChance > 0 && this.run.hp < this.run.maxHp && Math.random() < this.run.lifestealChance) {
+      this.run.heal(1);
+      this.burst(this.player.x, this.player.y, "#b48cff", 7);
+      this.sfx("pickup");
+    }
     if (Math.random() < (e.def.heartChance ?? 0)) {
       this.interactables.push(this.makeFloatingPickup(e.x, e.y, "heart"));
     }
@@ -535,6 +569,10 @@ export class Game implements CombatHooks, CombatCallbacks {
         this.input.setTouchVisible(false);
         this.menuInput();
         return;
+      case "characterSelect":
+        this.input.setTouchVisible(false);
+        this.menuInput();
+        return;
       case "controls":
       case "credits":
         this.input.setTouchVisible(false);
@@ -577,6 +615,10 @@ export class Game implements CombatHooks, CombatCallbacks {
         this.state = this.helpReturn;
         return;
       }
+      if (this.state === "characterSelect") {
+        this.state = this.charSelectMode === "swap" ? "checkpoint" : "title";
+        return;
+      }
     }
     if (!id) return;
     this.audio.play("select");
@@ -587,9 +629,10 @@ export class Game implements CombatHooks, CombatCallbacks {
     switch (this.state) {
       case "title":
         if (id === "start") {
-          this.save.hasRun() ? this.continueRun() : this.newRun();
+          // Continue resumes the saved Vessel; a fresh start picks one first.
+          this.save.hasRun() ? this.continueRun() : this.openCharacterSelect("new");
         } else if (id === "newrun") {
-          this.save.hasRun() ? this.newRun() : this.openControls("title");
+          this.openCharacterSelect("new");
         } else if (id === "difficulty") {
           const order: DifficultyMode[] = ["easy", "normal", "hard"];
           this.difficulty = order[(order.indexOf(this.difficulty) + 1) % order.length];
@@ -597,6 +640,21 @@ export class Game implements CombatHooks, CombatCallbacks {
           this.save.flush();
         } else if (id === "help") {
           this.openControls("title");
+        }
+        break;
+      case "characterSelect":
+        if (id.startsWith("pick_")) {
+          const i = parseInt(id.slice(5), 10);
+          if (!Number.isNaN(i) && characters[i]) this.charSelectIdx = i;
+        } else if (id === "begin") {
+          this.confirmCharacterSelect();
+        } else if (id === "back") {
+          this.state = this.charSelectMode === "swap" ? "checkpoint" : "title";
+        } else if (id === "difficulty") {
+          const order: DifficultyMode[] = ["easy", "normal", "hard"];
+          this.difficulty = order[(order.indexOf(this.difficulty) + 1) % order.length];
+          this.save.data.difficultyMode = this.difficulty;
+          this.save.flush();
         }
         break;
       case "controls":
@@ -613,6 +671,7 @@ export class Game implements CombatHooks, CombatCallbacks {
         break;
       case "checkpoint":
         if (id === "resume") this.state = "playing";
+        else if (id === "changehero") this.openCharacterSelect("swap");
         else if (id === "abandon") this.toTitle();
         break;
       case "reading":
@@ -656,6 +715,33 @@ export class Game implements CombatHooks, CombatCallbacks {
   private openCredits(ret: State) {
     this.helpReturn = ret;
     this.state = "credits";
+  }
+  private charIndex(id: string): number {
+    const i = characters.findIndex((c) => c.id === id);
+    return i >= 0 ? i : 0;
+  }
+  private openCharacterSelect(mode: "new" | "swap") {
+    this.charSelectMode = mode;
+    const baseId = mode === "swap" && this.run ? this.run.character.id : this.save.data.characterId;
+    this.charSelectIdx = this.charIndex(baseId);
+    this.state = "characterSelect";
+  }
+  /** Confirm the chosen Vessel: start a new run, or swap mid-run at an Emberlight. */
+  private confirmCharacterSelect() {
+    const ch = characters[this.charSelectIdx] ?? characters[0];
+    this.save.data.characterId = ch.id;
+    this.save.flush();
+    if (this.charSelectMode === "swap" && this.run) {
+      this.run.character = ch;
+      this.run.fullHeal(); // you were resting — restore to the new form's vigour
+      this.persist();
+      this.toast(`You take up the form of ${ch.name}.`, ch.color);
+      this.audio.play("checkpoint");
+      this.updateMusic();
+      this.state = "playing";
+    } else {
+      this.newRun();
+    }
   }
   private toggleMute() {
     const m = !this.audio.isMuted();
@@ -714,8 +800,19 @@ export class Game implements CombatHooks, CombatCallbacks {
 
     // player
     this.player.update(dt, this.input, room, this);
-    if (this.player.attackJustStarted) {
-      this.slashes.push(new Slash(this.player.x, this.player.y, Math.atan2(this.player.aimY, this.player.aimX), this.run.attackReach, Balance.player.attackDuration + 0.06));
+    // melee Vessels leave a sweeping blade arc; ranged ones show muzzle + projectile
+    if (this.player.attackJustStarted && !this.run.isRanged) {
+      this.slashes.push(
+        new Slash(
+          this.player.x,
+          this.player.y,
+          Math.atan2(this.player.aimY, this.player.aimX),
+          this.run.attackReach,
+          this.run.attackDuration + 0.06,
+          this.run.character.color,
+          this.run.attackArc
+        )
+      );
     }
 
     // entities
@@ -726,7 +823,7 @@ export class Game implements CombatHooks, CombatCallbacks {
     // combat
     resolvePlayerAttack(this.player, this.enemies, this.boss, this, this);
     resolveContact(this.player, this.enemies, this.boss, this, this);
-    updateProjectiles(dt, this.projectiles, room, this.player, this, this);
+    updateProjectiles(dt, this.projectiles, room, this.player, this.enemies, this.boss, this, this);
     updateHazards(dt, this.hazards, this.player, this, this);
     this.enemies = this.enemies.filter((e) => e.alive);
     this.projectiles = this.projectiles.filter((p) => p.alive);
@@ -1252,6 +1349,11 @@ export class Game implements CombatHooks, CombatCallbacks {
     if (this.state === "title") {
       this.drawWorldBackdrop();
       this.ui.drawTitle(this.save.data, this.difficulty);
+      return;
+    }
+    if (this.state === "characterSelect") {
+      this.drawWorldBackdrop();
+      this.ui.drawCharacterSelect(characters, this.charSelectIdx, this.difficulty, this.charSelectMode, this.time);
       return;
     }
 

@@ -6,7 +6,7 @@
  */
 import type { Renderer } from "./Renderer";
 import type { RunState } from "./Progression";
-import type { SaveData } from "./types";
+import type { CharacterDef, SaveData } from "./types";
 import type { DifficultyMode } from "./Balance";
 
 const C = {
@@ -490,55 +490,183 @@ export class UI {
   }
 
   // =====================================================================
+  // Character select ("Choose Your Vessel")
+  // =====================================================================
+  /** Lays out the roster: a live animated preview + a 5×2 tappable portrait grid. */
+  drawCharacterSelect(roster: CharacterDef[], sel: number, difficulty: DifficultyMode, mode: "new" | "swap", time: number) {
+    this.buttons = [];
+    const ctx = this.ctx;
+    const s = this.uiScale;
+    this.dimScreen(0.5);
+    const ch = roster[sel] ?? roster[0];
+
+    // heading + the lore that justifies a roster you can swap between
+    this.serif(28);
+    this.text(mode === "swap" ? "Take a New Form" : "Choose Your Vessel", this.W / 2, this.H * 0.07 + 8 * s, C.ember, "center");
+    this.font(12, "normal", "Georgia, serif");
+    this.text(
+      mode === "swap"
+        ? "At the Emberlight the dead offer their forms. Take up whichever you will."
+        : "The Ember wears the shape of the fallen — each with their own weapon, gait, and gift.",
+      this.W / 2,
+      this.H * 0.07 + 28 * s,
+      C.dim,
+      "center"
+    );
+
+    // ----- preview panel: hero + demo weapon on the left, details on the right -----
+    const pw = Math.min(this.W * 0.92, 520 * s);
+    const px = this.W / 2 - pw / 2;
+    const py = this.H * 0.12 + 18 * s;
+    const ph = Math.min(this.H * 0.3, 172 * s);
+    this.panel(px, py, pw, ph, true);
+
+    const heroSize = Math.min(ph * 0.62, 96 * s);
+    const hx = px + pw * 0.17;
+    const hy = py + ph * 0.52;
+    // accent halo behind the hero (8-digit hex = colour + alpha)
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    const g = ctx.createRadialGradient(hx, hy, 0, hx, hy, heroSize * 0.95);
+    g.addColorStop(0, ch.color + "44");
+    g.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(hx, hy, heroSize * 0.95, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+    this.r.drawHeroPreview(ch, hx, hy, heroSize, time);
+
+    const tx = px + pw * 0.36;
+    const tw = pw * 0.6;
+    this.serif(20);
+    this.text(ch.name, tx, py + 26 * s, ch.color, "left");
+    this.font(11, "bold");
+    this.text(ch.role.toUpperCase(), tx, py + 43 * s, C.dim, "left");
+    // signature perk
+    this.font(13, "bold");
+    this.text("✦ " + ch.perkName, tx, py + 66 * s, C.good, "left");
+    this.font(12, "normal", "Georgia, serif");
+    let ty = py + 84 * s;
+    for (const ln of this.wrap(ch.perkDesc, tw)) {
+      this.text(ln, tx, ty, C.ink, "left");
+      ty += 16 * s;
+    }
+    // at-a-glance stats
+    const range = ch.style === "cast" ? "Ranged" : ch.reachMult >= 1.5 ? "Long" : ch.reachMult <= 0.85 ? "Short" : "Normal";
+    const spd = ch.speedMult >= 1.05 ? "Fast" : ch.speedMult <= 0.9 ? "Slow" : "Normal";
+    const dmg = "●".repeat(Math.max(1, ch.damage)) + (ch.damage < 2 ? "○" : "");
+    this.font(11, "bold");
+    this.text(`Reach: ${range}    Speed: ${spd}    Hit: ${dmg}`, tx, ty + 8 * s, C.dim, "left");
+    if (sel === 0) {
+      this.font(10.5, "bold");
+      this.text("★ Recommended for a first descent", tx, py + ph - 10 * s, C.gold, "left");
+    }
+
+    // ----- portrait grid (5×2) -----
+    const cols = 5;
+    const gw = Math.min(this.W * 0.94, 540 * s);
+    const cell = Math.min((gw - (cols - 1) * 6 * s) / cols, this.H * 0.12, 54 * s);
+    const gap = 6 * s;
+    const gridW = cols * cell + (cols - 1) * gap;
+    const gx0 = this.W / 2 - gridW / 2;
+    const gy0 = py + ph + 12 * s;
+    for (let i = 0; i < roster.length; i++) {
+      const rr = Math.floor(i / cols);
+      const cc = i % cols;
+      const x = gx0 + cc * (cell + gap);
+      const y = gy0 + rr * (cell + gap);
+      this.buttons.push({ id: "pick_" + i, x, y, w: cell, h: cell, label: "" });
+      const seld = i === sel;
+      ctx.fillStyle = seld ? "rgba(255,154,60,0.16)" : "rgba(30,24,42,0.82)";
+      ctx.strokeStyle = seld ? roster[i].color : C.border;
+      ctx.lineWidth = seld ? 3 : 1.5;
+      this.roundRect(x, y, cell, cell, 8);
+      ctx.fill();
+      ctx.stroke();
+      this.r.heroIcon(roster[i].sprite, x + cell / 2, y + cell * 0.42, cell * 0.72);
+      this.font(8.5, "bold");
+      this.text(roster[i].name.replace("The ", ""), x + cell / 2, y + cell - 5 * s, seld ? C.ink : C.dim, "center");
+    }
+
+    // ----- actions -----
+    const by = gy0 + 2 * cell + gap + 14 * s;
+    const bw = Math.min(this.W * 0.82, 360 * s);
+    const bx = this.W / 2 - bw / 2;
+    this.button({
+      id: "begin",
+      x: bx,
+      y: by,
+      w: bw,
+      h: 42 * s,
+      label: mode === "swap" ? "Take this Form" : "Begin the Descent  →",
+      primary: true,
+      accent: ch.color,
+    });
+    const by2 = by + 42 * s + 8 * s;
+    if (mode === "new") {
+      this.button({ id: "back", x: bx, y: by2, w: bw / 2 - 5 * s, h: 32 * s, label: "Back", small: true });
+      const diffLabel = difficulty === "easy" ? "Mode: Easy" : difficulty === "hard" ? "Mode: Hard" : "Mode: Normal";
+      const diffAccent = difficulty === "easy" ? C.good : difficulty === "hard" ? C.bad : C.border;
+      this.button({ id: "difficulty", x: bx + bw / 2 + 5 * s, y: by2, w: bw / 2 - 5 * s, h: 32 * s, label: diffLabel, small: true, accent: diffAccent });
+    } else {
+      this.button({ id: "back", x: bx, y: by2, w: bw, h: 32 * s, label: "Back", small: true });
+    }
+  }
+
+  // =====================================================================
   // Controls / Help
   // =====================================================================
   drawControls() {
     this.buttons = [];
     const s = this.uiScale;
     this.dimScreen(0.6);
+    const lines = [
+      "DESKTOP",
+      "  Move WASD/Arrows · Attack Space · Roll Shift · Use E",
+      "  Pause Esc · Mute M",
+      "",
+      "MOBILE",
+      "  Left thumb drags to move. ATK / DASH / USE at right.",
+      "",
+      "VESSELS",
+      "  Pick a hero to start — each has its own weapon, attack",
+      "  & perk, and some clear certain rooms far more easily.",
+      "  Swap forms at any Emberlight. Mage & archer are ranged.",
+      "",
+      "THE WORLD",
+      "  Rest at Emberlights to save, heal & change form.",
+      "  Roll through attacks for brief invulnerability.",
+      "  Two Warden Seals open the boss door. Fall, and your",
+      "  embers wait where you died. Easy is forgiving but real.",
+    ];
+    // Size the panel to its content so the Back button always clears the text
+    // (shrink the line spacing only if the screen is too short to fit it all).
+    const topPad = 58 * s;
+    const botPad = 62 * s;
     const w = Math.min(this.W * 0.9, 480 * s);
-    const h = Math.min(this.H * 0.86, 520 * s);
+    const maxH = this.H * 0.92;
+    let lineH = 21 * s;
+    let h = topPad + lines.length * lineH + botPad;
+    if (h > maxH) {
+      lineH = (maxH - topPad - botPad) / lines.length;
+      h = maxH;
+    }
     const x = this.W / 2 - w / 2;
     const y = this.H / 2 - h / 2;
     this.panel(x, y, w, h);
     this.serif(26);
-    this.text("How to Play", this.W / 2, y + 40 * s, C.ember, "center");
-    this.font(15, "normal", "Georgia, serif");
-    const lines = [
-      "DESKTOP",
-      "  Move — WASD / Arrow keys",
-      "  Attack — Space / J / Z",
-      "  Roll (dodge, brief i-frames) — Shift / K / X",
-      "  Interact — E / F      Pause — Esc / P      Mute — M",
-      "",
-      "MOBILE",
-      "  Left thumb — drag anywhere to move (floating stick)",
-      "  ATK — swing your blade      DASH — roll/dodge",
-      "  USE — appears near chests, levers, lore & doors",
-      "",
-      "THE WORLD",
-      "  Rest at Emberlights & Lanterns to save & heal.",
-      "  Roll through attacks — you're briefly invulnerable.",
-      "  Two Warden Seals open the sealed door to the boss.",
-      "  Fall and you respawn at the last rest; your dropped",
-      "  embers wait where you died — reclaim them.",
-      "  Beyond the Keep: the Rootward Road, the drowned",
-      "  Saltblack Reach (Tide Relic fords shallows), and the",
-      "  Glass Country — light crystals to open their gates,",
-      "  then take the Crystal Shard to wake mirror gates.",
-      "  Easy mode = a forgiving QA/practice scale.",
-      "  (Dev: F2 collision · F3 state · F4 warp checkpoints.)",
-    ];
-    let ty = y + 70 * s;
+    this.text("How to Play", this.W / 2, y + 38 * s, C.ember, "center");
+    let ty = y + topPad + 10 * s;
     for (const ln of lines) {
       const head = ln === ln.toUpperCase() && ln.trim().length > 0 && !ln.startsWith(" ");
       if (head) this.font(15, "bold");
       else this.font(14, "normal", "Georgia, serif");
       this.text(ln, x + 28 * s, ty, head ? C.arcane : C.ink, "left");
-      ty += 21 * s;
+      ty += lineH;
     }
     const bw = 160 * s;
-    this.button({ id: "back", x: this.W / 2 - bw / 2, y: y + h - 56 * s, w: bw, h: 42 * s, label: "Back", primary: true });
+    this.button({ id: "back", x: this.W / 2 - bw / 2, y: y + h - 50 * s, w: bw, h: 40 * s, label: "Back", primary: true });
   }
 
   // =====================================================================
@@ -574,13 +702,15 @@ export class UI {
     this.serif(28);
     this.text(name, this.W / 2, this.H * 0.3 + 50 * s, C.ember, "center");
     this.font(15, "normal", "Georgia, serif");
-    this.text("You rest. Vigor restored. The Keep holds its breath.", this.W / 2, this.H * 0.3 + 78 * s, C.dim, "center");
+    this.text("You rest. Vigor restored. Here you may take a new form.", this.W / 2, this.H * 0.3 + 78 * s, C.dim, "center");
     const bw = Math.min(this.W * 0.7, 260 * s);
     const bh = 44 * s;
     const bx = this.W / 2 - bw / 2;
-    let by = this.H * 0.55;
+    let by = this.H * 0.52;
     this.button({ id: "resume", x: bx, y: by, w: bw, h: bh, label: "Press On", primary: true });
     by += bh + 10 * s;
+    this.button({ id: "changehero", x: bx, y: by, w: bw, h: bh * 0.82, label: "Change Hero", small: true, accent: C.arcane });
+    by += bh * 0.82 + 10 * s;
     this.button({ id: "abandon", x: bx, y: by, w: bw, h: bh * 0.82, label: "Abandon to Title", small: true, accent: C.bad });
   }
 
@@ -756,9 +886,10 @@ export class UI {
       "A complete first adventure in an expandable world.",
       "",
       "ART",
-      "  Kenney “Tiny Dungeon” (16×16) — kenney.nl",
-      "  Hearts, keys, embers & effects drawn procedurally",
-      "  to match the pack.",
+      "  Kenney Tiny Dungeon · Town · Battle · Ski (16×16) —",
+      "  kenney.nl. Ten playable Vessels are Tiny Dungeon",
+      "  figures; their weapons, hearts & effects are drawn",
+      "  procedurally to match.",
       "",
       "AUDIO",
       "  Kenney RPG / Impact / Interface / Music (when",

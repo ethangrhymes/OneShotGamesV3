@@ -50,14 +50,15 @@ node scripts/prepare-assets.mjs
 
 ---
 
-## Packs in use (three regions, three cohesive families)
+## Packs in use (four regions + the playable roster)
 
-| Region | Pack | Key prefix | Grid | What it supplies |
+| Region / use | Pack | Key prefix | Grid | What it supplies |
 | --- | --- | --- | --- | --- |
 | Act I — The Sunken Keep | **Tiny Dungeon** | *(none)* | 12×11 (132) | hero, monsters, bosses, walls, doors, gates, chests, potions, braziers, scrolls, the seal ring |
 | The Rootward Road | **Tiny Town** | `tt_` | 12×11 (132) | grass, cobble roads, dying autumn trees, houses, fences, a causeway arch, signs, a well, a stall, the bell-token relic |
 | The Saltblack Reach | **Tiny Battle** | `tb_` | 18×11 (198) | deep & shallow water, coasts, plank bridges, fords, ruined keeps/bastions, drowned banners, a crossed-blade grave marker, a sand cairn, a beached warship |
 | The Glass Country | **Tiny Ski** | `sk_` | 12×11 (132) | bright white/ice terrain (glass ground), frost trees, lift pylons, gate arches, prism banners, a ski-lodge, and red-eyed wolves + a yeti as enemy sprites |
+| Playable Vessels (roster) | **Tiny Dungeon** | `pc_` | 12×11 (132) | 10 front-facing hero figures (knight, mage, archer, sage, etc.); their weapons are drawn procedurally, not blitted |
 
 **Terrain from Kenney, magic from the engine.** The Glass Country pairs a real Kenney
 pack (Tiny Ski terrain) with **procedural** light effects for everything magical —
@@ -67,6 +68,17 @@ flat 16×16 tiles, and it sidesteps slicing the spritesheet-only packs (Generic 
 Rune Pack, Roguelike, etc. ship no per-tile `Tiles/` folder, only packed sheets). This
 "Kenney ground + engine-rendered magic" split is a good default whenever a region's
 identity is *light* rather than *stuff*.
+
+**Heroes from Kenney, weapons from the engine.** The 10 playable Vessels are individual
+front-facing **Tiny Dungeon** figures copied under `pc_*` keys (e.g. `pc_warden`,
+`pc_embermage`) so they share the hero outline and 16×16 scale. Their **weapons are drawn
+procedurally** (`Renderer.drawWeaponShape` / `drawWeaponPosed`) rather than blitted — a
+procedural blade rotates cleanly through the entire swing/thrust/spin/cast, glows in the
+Vessel's accent colour, and needs no per-weapon art or sprite-orientation fiddling. This
+keeps the deployed asset count tiny (10 extra ~1 KB tiles) while every hero reads
+distinctly. As always, **ground-check each `pc_*` index** with a labelled contact sheet —
+Tiny Dungeon's hero figures sit one row above the digit tiles, so an off-by-a-few silently
+maps a hero to a number.
 
 Indices were derived by inspecting each pack's tilemap. **Index = `row * columns + col`**
 (Tiny Dungeon/Town are 12-wide; Tiny Battle is 18-wide). When in doubt, render a

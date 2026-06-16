@@ -8,7 +8,7 @@
  * stay dead because their spawns are gated behind defeat flags.
  */
 import { Balance, type DifficultyMode } from "./Balance";
-import type { GameFlag, UpgradeId } from "./types";
+import type { CharacterDef, GameFlag, UpgradeId } from "./types";
 
 export interface RunStats {
   startTime: number;
@@ -39,6 +39,7 @@ export interface RunSnapshot {
   lostY: number;
   stats: Omit<RunStats, "roomsVisited" | "startTime"> & { roomsVisited: string[] };
   difficulty: DifficultyMode;
+  characterId?: string; // chosen Vessel (older snapshots default to the Warden)
 }
 
 export class RunState {
@@ -60,6 +61,8 @@ export class RunState {
   lostY = 0;
 
   difficulty: DifficultyMode = "normal";
+  /** the chosen playable Vessel — drives the combat profile + signature perk. */
+  character: CharacterDef;
 
   stats: RunStats = {
     startTime: 0,
@@ -73,8 +76,9 @@ export class RunState {
     bossDefeated: false,
   };
 
-  constructor(difficulty: DifficultyMode = "normal") {
+  constructor(difficulty: DifficultyMode, character: CharacterDef) {
     this.difficulty = difficulty;
+    this.character = character;
     this.hp = this.maxHp;
   }
 
@@ -82,10 +86,12 @@ export class RunState {
     return Balance.difficulty[this.difficulty];
   }
   get iframeMult(): number {
-    return this.diff.iframeMult;
+    // difficulty mercy + the Vessel's own toughness perk (e.g. Sentinel's Bulwark)
+    return this.diff.iframeMult + (this.character.iframeBonus ?? 0);
   }
   get knockbackMult(): number {
-    return this.diff.knockbackMult;
+    // a sturdy Vessel (knockbackResist < 1) is shoved around less
+    return this.diff.knockbackMult * (this.character.knockbackResist ?? 1);
   }
   get aggroMult(): number {
     return this.diff.aggroMult;
@@ -114,28 +120,58 @@ export class RunState {
     return (
       Balance.player.maxHeartsStart +
       this.diff.heartsBonus +
-      this.heartVesselCount * Balance.upgrades.heartVesselBonus
+      this.heartVesselCount * Balance.upgrades.heartVesselBonus +
+      (this.character.heartsBonus ?? 0)
     );
   }
   get maxHp(): number {
     return this.maxHearts * Balance.player.hpPerHeart;
   }
+  /** Move speed (px/sec) — scaled by the Vessel's footwork. */
+  get moveSpeed(): number {
+    return Balance.player.speed * this.character.speedMult;
+  }
   get attackReach(): number {
     return (
-      Balance.player.attackReach +
+      Balance.player.attackReach * this.character.reachMult +
       (this.upgrades.has("wardensEdge") ? Balance.upgrades.wardensEdgeReach : 0)
     );
   }
+  /** Swing arc width (radians) — wide for axes/whirls, narrow for thrusts. */
+  get attackArc(): number {
+    const a = Balance.player.attackArc * this.character.arcMult;
+    return Math.max(0.2, Math.min(Math.PI * 1.95, a));
+  }
+  /** Active hit-window (sec) — also paces the weapon's swing animation. */
+  get attackDuration(): number {
+    return Balance.player.attackDuration * (this.character.durationMult ?? 1);
+  }
+  get attackCooldown(): number {
+    return Balance.player.attackCooldown * this.character.cooldownMult;
+  }
   get attackDamage(): number {
     return (
-      Balance.player.attackDamage +
+      this.character.damage +
       (this.upgrades.has("wardensEdge") ? Balance.upgrades.wardensEdgeDamage : 0)
     );
+  }
+  /** How hard a melee hit shoves an enemy back. */
+  get enemyKnockback(): number {
+    return Balance.combat.enemyKnockback * (this.character.enemyKnockbackMult ?? 1);
+  }
+  /** Ranged Vessels (staff/bow) attack only through projectiles — no melee. */
+  get isRanged(): boolean {
+    return this.character.style === "cast";
+  }
+  /** Chance [0..1] to mend a pip on a kill (Revenant's Harvest). */
+  get lifestealChance(): number {
+    return this.character.lifestealChance ?? 0;
   }
   get dashCooldown(): number {
     return (
       Balance.player.dashCooldown *
-      (this.upgrades.has("swiftBoots") ? Balance.upgrades.swiftBootsCooldownMult : 1)
+      (this.upgrades.has("swiftBoots") ? Balance.upgrades.swiftBootsCooldownMult : 1) *
+      (this.character.dashCooldownMult ?? 1)
     );
   }
 
@@ -208,6 +244,7 @@ export class RunState {
       lostX: this.lostX,
       lostY: this.lostY,
       difficulty: this.difficulty,
+      characterId: this.character.id,
       stats: {
         elapsedMs: this.stats.elapsedMs,
         enemiesDefeated: this.stats.enemiesDefeated,
@@ -221,8 +258,8 @@ export class RunState {
     };
   }
 
-  static restore(s: RunSnapshot): RunState {
-    const r = new RunState(s.difficulty);
+  static restore(s: RunSnapshot, character: CharacterDef): RunState {
+    const r = new RunState(s.difficulty, character);
     r.embers = s.embers;
     r.keys = s.keys;
     r.seals = s.seals;

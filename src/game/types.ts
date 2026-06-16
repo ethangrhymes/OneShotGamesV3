@@ -301,6 +301,76 @@ export interface BossDef {
   summonRef?: string;
 }
 
+// ---------------------------------------------------------------------------
+// Playable characters ("Vessels")
+// ---------------------------------------------------------------------------
+
+/** How a character's weapon looks + animates, and how its hit is shaped. */
+export type WeaponKind =
+  | "sword" // balanced arc swing
+  | "hammer" // slow heavy arc, big knockback
+  | "axe" // wide heavy arc
+  | "spear" // long narrow thrust (cleaves the line)
+  | "dagger" // short fast thrust
+  | "scythe" // medium reaping arc
+  | "quarterstaff" // 360° spin (hits all around)
+  | "cutlass" // quick light arc (combo)
+  | "staff" // ranged caster (ember-bolts)
+  | "bow"; // ranged archer (piercing arrows)
+
+/** The shape of the attack motion the renderer plays + combat resolves. */
+export type AttackStyle = "swing" | "thrust" | "spin" | "cast";
+
+/**
+ * A playable "Vessel". The Ember chooses one at the start and may take up a
+ * different fallen form at any Emberlight. Each is a Tiny Dungeon figure paired
+ * with a distinct procedural weapon (animated on attack) and a signature perk,
+ * so the choice changes both how the game looks and how it plays. Data-driven:
+ * see src/content/characters/characterDefinitions.ts.
+ */
+export interface CharacterDef {
+  id: string;
+  name: string;
+  /** short class/role line shown under the name. */
+  role: string;
+  /** AssetManager sprite key (pc_*). */
+  sprite: string;
+  weapon: WeaponKind;
+  style: AttackStyle;
+  /** accent + weapon colour (hex). */
+  color: string;
+  /** flavour for the select screen (1–2 lines). */
+  blurb: string;
+  /** short label for the signature perk. */
+  perkName: string;
+  /** one-line description of the perk's effect. */
+  perkDesc: string;
+
+  // ---- combat profile (× multipliers on Balance.player unless noted) ----
+  damage: number; // base attack / projectile damage (absolute pips)
+  reachMult: number; // melee reach ×
+  arcMult: number; // swing arc width ×
+  cooldownMult: number; // attack cooldown ×
+  durationMult?: number; // active hit-window × (default 1)
+  speedMult: number; // move speed ×
+  enemyKnockbackMult?: number; // how hard hits shove enemies (default 1)
+
+  // ---- ranged (style === "cast") ----
+  ranged?: {
+    projectileSpeed: number;
+    pierce?: number; // extra enemies a shot passes through (default 0)
+    shots?: number; // projectiles per attack (default 1)
+    spread?: number; // radians between multi-shots
+  };
+
+  // ---- passive perk effects ----
+  heartsBonus?: number; // + max hearts
+  dashCooldownMult?: number; // dash cooldown × (default 1)
+  iframeBonus?: number; // + added to the hurt-iframe multiplier
+  knockbackResist?: number; // ×, scales knockback TAKEN (default 1; <1 = sturdier)
+  lifestealChance?: number; // chance [0..1] to heal 1 pip on a kill
+}
+
 export type ItemKind = "key" | "seal" | "upgrade" | "consumable";
 
 export interface ItemDef {
@@ -351,4 +421,6 @@ export interface SaveData {
   completedReach: boolean; // reached the Drowned Toll-Gate (Phase 3 endpoint)
   // ---- Phase 4 expansion hooks (older saves auto-initialize these) ----
   completedGlassCountry: boolean; // reached the Sun-Gate (Phase 4 endpoint)
+  // ---- Character-roster hooks (older saves auto-initialize these) ----
+  characterId: string; // last-chosen playable Vessel (character-select default)
 }

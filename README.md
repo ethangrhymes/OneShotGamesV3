@@ -26,6 +26,30 @@ The engine is fully data-driven, so future acts/regions/bosses are added as cont
 files, not engine rewrites (see [`CONTENT_GUIDE.md`](CONTENT_GUIDE.md)). For how the
 Kenney bundle is mined and mixed across regions, see [`ASSET_GUIDE.md`](ASSET_GUIDE.md).
 
+## Character update — Choose your Vessel (what's new)
+
+- **A character-select screen on every new run.** The Ember now wears the shape of a
+  fallen champion — pick from **10 distinct playable "Vessels"**, each a front-facing
+  Kenney *Tiny Dungeon* figure (`pc_*`). The screen shows a **live preview** with the
+  hero's weapon, its perk, and at-a-glance stats; the Warden is flagged as the
+  recommended first descent.
+- **Every Vessel has a visible weapon that animates on attack.** Weapons are drawn
+  **procedurally** over the sprite and move with the swing — a sword/cutlass/axe/hammer
+  arc, a long **spear** thrust, a 360° **quarterstaff** whirl, a fast **dagger** jab, or
+  a raised **staff/bow** that looses a shot. Even at rest the weapon is held and breathes.
+- **Distinct attacks + perks that change how rooms play.** Melee Vessels cleave every
+  foe in their arc; the **Lancer** spears a whole line; the **Embermage** and **Wayfarer**
+  are **ranged** (ember-bolts / piercing arrows — no melee); the **Sentinel** is a +2-heart
+  bulwark; the **Reaver** double-hits and hurls foes; the **Revenant** heals on kills; the
+  **Duelist** trades reach for speed. Some trivialize shooter rooms, others crush tanks.
+- **Swap forms at any Emberlight.** Resting now offers **Change Hero** — take up a
+  different Vessel mid-run (e.g. a ranged form for a turret room, a tank for a boss). The
+  choice is saved and resumes with your run.
+- **Easy mode retuned to "challenging but achievable."** Incoming enemy *and boss* damage,
+  swarm aggro and knockback are softened and you get extra mercy i-frames + hearts — so an
+  engaged player always has a path forward — while enemies still live long enough to be
+  real fights. Normal and Hard are unchanged (Hard's boss hits even harder now).
+
 ## Phase 4 expansion — The Glass Country (what's new)
 
 - **A whole new region** past the Drowned Toll-Gate: **The Glass Country**, a bright
@@ -104,7 +128,8 @@ Kenney bundle is mined and mixed across regions, see [`ASSET_GUIDE.md`](ASSET_GU
 
 ## Play
 
-- **Title → Act I → Victory** is fully playable, roughly **10–20 minutes**.
+- **Title → Choose your Vessel → Act I → Victory** is fully playable, roughly
+  **10–20 minutes**. Pick one of **10 heroes** to begin; swap forms at any Emberlight.
 - Find **two Warden Seals** (one in the Gargoyle Gallery, one held by the Gaoler
   miniboss) to open the sealed door to the **Hollow Warden**, the final boss.
 
@@ -249,6 +274,17 @@ and synth audio.
 
 ## What's in the game
 
+**Playable Vessels (the roster)**
+
+- **10 heroes** chosen on a character-select screen and swappable at any Emberlight,
+  each a Kenney *Tiny Dungeon* figure with its own **procedurally-drawn, animated weapon**
+  and a signature perk: Warden (sword, +1 heart), Sentinel (hammer, +2 hearts/sturdy),
+  Reaver (axe, heavy + knockback), Lancer (spear, long cleaving thrust), Duelist (daggers,
+  fast/fragile), Embermage (staff, ranged fire), Wayfarer (bow, piercing arrows), Revenant
+  (scythe, lifesteal), Adept (quarterstaff, 360° whirl), Saltblade (cutlass, fast combo).
+- Ranged Vessels fight only through projectiles; melee Vessels cleave everything in their
+  arc. Stats flow through one `RunState` seam so perks/weapons stay fully data-driven.
+
 **Act I — The Sunken Keep**
 
 - 16 connected rooms in one region, with a region-colored minimap.
@@ -304,11 +340,11 @@ and synth audio.
 
 Everything is `localStorage`, no accounts/servers/cookies:
 
-- Settings (mute, difficulty) and lifetime stats (best time, most embers, wins,
-  deaths).
+- Settings (mute, difficulty, last-chosen Vessel) and lifetime stats (best time,
+  most embers, wins, deaths).
 - An in-progress **run snapshot** (resources incl. Bell Tokens, opened chests,
-  world flags, discovered lore, current checkpoint) so closing the tab resumes from
-  your last rest via **Continue Descent**.
+  world flags, discovered lore, current checkpoint, and the active **Vessel**) so
+  closing the tab resumes from your last rest, as the same hero, via **Continue Descent**.
 - Expansion hooks (`unlockedRegions`, `discoveredRegions`, `completedMiniRegion`,
   `optionalEliteDefeated`, `completedReach`, `completedGlassCountry`, the
   `tideRelic` / `brineHeart` / `crystalShard` / `glassHeart` upgrades, and run flags
@@ -335,6 +371,7 @@ src/
     regions/rootwardRoad.ts
     regions/saltblackReach.ts
     regions/glassCountry.ts
+    characters/characterDefinitions.ts   # the 10 playable Vessels
     enemies/enemyDefinitions.ts
     bosses/bossDefinitions.ts
     items/itemDefinitions.ts

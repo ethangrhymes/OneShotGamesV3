@@ -53,23 +53,32 @@ export const Balance = {
 
   // ---- difficulty multipliers ----
   // enemySpeed/aggroMult curb the "heat-seeking swarm"; heartsBonus + iframeMult +
-  // knockbackMult are the survivability levers. Easy is the QA/practice scale.
+  // knockbackMult are the survivability levers. bossDamage scales how hard boss
+  // hits land (HP alone left bosses brutal on Easy).
+  //
+  // EASY is meant to be a *moderate, achievable* challenge — encounters still
+  // bite, but an engaged player who keeps moving and rolling can always advance.
+  // Incoming damage is the biggest lever, so Easy mainly softens what hits you
+  // (enemy + boss damage, knockback) and grants generous mercy i-frames + hearts,
+  // while keeping enemies alive long enough to feel like real fights.
   difficulty: {
     easy: {
-      enemyHp: 0.6,
-      enemyDamage: 1.0,
-      enemySpeed: 0.6,
-      bossHp: 0.55,
-      heartsBonus: 4, // 9 hearts
-      iframeMult: 1.6,
-      aggroMult: 0.6,
-      knockbackMult: 0.45,
+      enemyHp: 0.5,
+      enemyDamage: 0.6,
+      enemySpeed: 0.58,
+      bossHp: 0.5,
+      bossDamage: 0.6,
+      heartsBonus: 5, // 10 hearts
+      iframeMult: 1.9,
+      aggroMult: 0.5,
+      knockbackMult: 0.35,
     },
     normal: {
       enemyHp: 0.9,
       enemyDamage: 1.0,
       enemySpeed: 0.82,
       bossHp: 0.85,
+      bossDamage: 1.0,
       heartsBonus: 1, // 6 hearts
       iframeMult: 1.15,
       aggroMult: 0.82,
@@ -80,6 +89,7 @@ export const Balance = {
       enemyDamage: 1.5,
       enemySpeed: 1.02,
       bossHp: 1.3,
+      bossDamage: 1.4,
       heartsBonus: 0,
       iframeMult: 1.0,
       aggroMult: 1.0,

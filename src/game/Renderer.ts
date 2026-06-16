@@ -9,6 +9,7 @@ import type { AssetManager } from "./AssetManager";
 import { Room, type Cell } from "./Dungeon";
 import type { Boss, Enemy, Hazard, Interactable, Player, Projectile } from "./Entities";
 import type { RunState } from "./Progression";
+import type { CharacterDef, WeaponKind } from "./types";
 
 // ---- effects ---------------------------------------------------------------
 export class Particle {
@@ -53,13 +54,16 @@ export class Slash {
   t = 0;
   dur: number;
   color: string;
-  constructor(x: number, y: number, angle: number, reach: number, dur: number, color = "#fff4d6") {
+  /** swing-arc width (radians) — narrow for thrusts, near-full for whirls. */
+  arc: number;
+  constructor(x: number, y: number, angle: number, reach: number, dur: number, color = "#fff4d6", arc = Math.PI * 0.95) {
     this.x = x;
     this.y = y;
     this.angle = angle;
     this.reach = reach;
     this.dur = dur;
     this.color = color;
+    this.arc = arc;
   }
   get alive() {
     return this.t < this.dur;
@@ -942,12 +946,363 @@ export class Renderer {
     const drawH = size * squashY;
     const cx = this.sx(p.x);
     const cy = this.sy(p.y);
+    // when aiming away (upward) the weapon is drawn behind the body for depth
+    const behind = p.aimY < -0.35;
     ctx.save();
     if (p.invulnerable && Math.floor(time * 20) % 2 === 0) ctx.globalAlpha = 0.5;
-    this.blitCentered("player", cx, cy - (drawH - size) / 2, drawW, drawH, p.facingX < 0) ||
+    if (behind) this.drawWeapon(p, time);
+    this.blitCentered(p.run.character.sprite, cx, cy - (drawH - size) / 2, drawW, drawH, p.facingX < 0) ||
       this.fallbackPlayer(cx, cy, r);
+    if (!behind) this.drawWeapon(p, time);
     ctx.restore();
     if (p.hurtFlashT > 0) this.flashBlob(cx, cy, r, "rgba(255,80,80,0.5)");
+  }
+
+  /**
+   * The held weapon — visible at rest and animated on attack. The weapon SHAPE
+   * comes from the Vessel's `weapon`; the MOTION from its `style` (swing /
+   * thrust / spin / cast). Drawn procedurally so each Vessel reads distinctly and
+   * the weapon genuinely moves with the swing.
+   */
+  private drawWeapon(p: Player, time: number) {
+    const ch = p.run.character;
+    const size = TILE * this.scale;
+    const cx = this.sx(p.x);
+    const cy = this.sy(p.y) - size * 0.04;
+    const aim = Math.atan2(p.aimY, p.aimX);
+    const attacking = p.attacking;
+    const prog = attacking ? 1 - p.attackT / Math.max(0.0001, p.run.attackDuration) : 0;
+    this.drawWeaponPosed(ch, cx, cy, size, aim, attacking, prog, time, p.bob, p.run.attackReach * this.scale);
+  }
+
+  /** Public: a hero + its looping demo swing — the character-select preview. */
+  drawHeroPreview(ch: CharacterDef, cx: number, cy: number, size: number, time: number) {
+    this.blitCentered(ch.sprite, cx, cy, size, size, false) || this.fallbackPlayer(cx, cy, size * 0.5);
+    // a gentle looping demo so each weapon's motion reads on the select screen
+    const cycle = 1.8;
+    const phase = (time % cycle) / cycle;
+    const swing = 0.3;
+    const attacking = phase < swing;
+    const prog = attacking ? phase / swing : 0;
+    this.drawWeaponPosed(ch, cx, cy - size * 0.04, size, 0.18, attacking, prog, time, 0, size * 1.6);
+  }
+
+  /** Public: blit a hero sprite centered (character-select grid portrait). */
+  heroIcon(key: string, cx: number, cy: number, size: number) {
+    this.blitCentered(key, cx, cy, size, size, false) || this.fallbackPlayer(cx, cy, size * 0.5);
+  }
+
+  private drawWeaponPosed(
+    ch: CharacterDef,
+    cx: number,
+    cy: number,
+    size: number,
+    aim: number,
+    attacking: boolean,
+    prog: number,
+    time: number,
+    bob: number,
+    reachPx: number
+  ) {
+    const ctx = this.ctx;
+    if (ch.style === "cast") {
+      // raised caster pose with a recoil kick on release (the projectile is the star)
+      const off = size * 0.22 + (attacking ? -Math.sin(prog * Math.PI) * size * 0.28 : 0);
+      ctx.save();
+      ctx.translate(cx + Math.cos(aim) * off, cy + Math.sin(aim) * off);
+      ctx.rotate(aim);
+      if (ch.weapon === "bow") this.drawBow(size, ch.color, attacking ? prog : -1);
+      else this.drawWeaponShape("staff", size, ch.color, time, attacking);
+      ctx.restore();
+      return;
+    }
+    if (ch.style === "spin") {
+      // quarterstaff whirl: spins fast on attack, idle slow-turn at rest
+      const a = attacking ? aim + prog * Math.PI * 4 : time * 2.2;
+      if (attacking) this.softGlowPx(cx, cy, reachPx * 0.9, ch.color, 0.22 * (1 - prog));
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.rotate(a);
+      this.drawQuarterstaff(size, ch.color);
+      ctx.restore();
+      return;
+    }
+    if (ch.style === "thrust") {
+      // spear / dagger: jab out along aim and snap back
+      const ext = attacking ? Math.sin(prog * Math.PI) * size * 0.9 : Math.sin(time * 3 + bob) * 1.5;
+      const off = size * 0.16 + ext;
+      ctx.save();
+      ctx.translate(cx + Math.cos(aim) * off, cy + Math.sin(aim) * off);
+      ctx.rotate(aim);
+      this.drawWeaponShape(ch.weapon, size, ch.color, time, attacking);
+      ctx.restore();
+      return;
+    }
+    // default: swing (sword / axe / hammer / scythe / cutlass)
+    const span = Math.min(Math.PI * 1.15, Balance.player.attackArc * ch.arcMult);
+    const a = attacking ? aim - span / 2 + span * prog : aim - span * 0.16 + Math.sin(time * 2.4 + bob) * 0.05;
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(a);
+    ctx.translate(size * 0.14, 0); // grip sits a little out from the body
+    this.drawWeaponShape(ch.weapon, size, ch.color, time, attacking);
+    ctx.restore();
+  }
+
+  /** Draw a weapon along +X with its grip at the origin (caller sets transform). */
+  private drawWeaponShape(kind: WeaponKind, size: number, color: string, time: number, attacking: boolean) {
+    const ctx = this.ctx;
+    const wood = "#7a5230";
+    const steel = "#d9dee8";
+    const lw = Math.max(2, size * 0.07);
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    const glow = (len: number) => {
+      if (!attacking) return;
+      ctx.save();
+      ctx.globalCompositeOperation = "lighter";
+      ctx.strokeStyle = color;
+      ctx.globalAlpha = 0.5;
+      ctx.lineWidth = lw * 1.8;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(len, 0);
+      ctx.stroke();
+      ctx.restore();
+    };
+    switch (kind) {
+      case "sword":
+      case "cutlass": {
+        const len = size * (kind === "cutlass" ? 0.82 : 0.95);
+        glow(len);
+        ctx.strokeStyle = wood;
+        ctx.lineWidth = lw;
+        ctx.beginPath();
+        ctx.moveTo(-size * 0.08, 0);
+        ctx.lineTo(len * 0.16, 0);
+        ctx.stroke();
+        ctx.strokeStyle = steel;
+        ctx.lineWidth = lw * 0.8;
+        ctx.beginPath();
+        ctx.moveTo(len * 0.16, -size * 0.13);
+        ctx.lineTo(len * 0.16, size * 0.13);
+        ctx.stroke();
+        ctx.fillStyle = steel;
+        ctx.beginPath();
+        if (kind === "cutlass") {
+          ctx.moveTo(len * 0.16, -size * 0.06);
+          ctx.quadraticCurveTo(len * 0.7, -size * 0.18, len, 0);
+          ctx.quadraticCurveTo(len * 0.7, size * 0.02, len * 0.16, size * 0.06);
+        } else {
+          ctx.moveTo(len * 0.16, -size * 0.07);
+          ctx.lineTo(len * 0.92, -size * 0.04);
+          ctx.lineTo(len, 0);
+          ctx.lineTo(len * 0.92, size * 0.04);
+          ctx.lineTo(len * 0.16, size * 0.07);
+        }
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = color;
+        ctx.lineWidth = Math.max(1, size * 0.025);
+        ctx.beginPath();
+        ctx.moveTo(len * 0.2, -size * 0.04);
+        ctx.lineTo(len * 0.95, -size * 0.012);
+        ctx.stroke();
+        break;
+      }
+      case "dagger": {
+        const len = size * 0.62;
+        glow(len);
+        ctx.strokeStyle = wood;
+        ctx.lineWidth = lw;
+        ctx.beginPath();
+        ctx.moveTo(-size * 0.06, 0);
+        ctx.lineTo(len * 0.32, 0);
+        ctx.stroke();
+        ctx.fillStyle = steel;
+        ctx.beginPath();
+        ctx.moveTo(len * 0.32, -size * 0.06);
+        ctx.lineTo(len, 0);
+        ctx.lineTo(len * 0.32, size * 0.06);
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = color;
+        ctx.lineWidth = Math.max(1, size * 0.022);
+        ctx.beginPath();
+        ctx.moveTo(len * 0.36, -size * 0.03);
+        ctx.lineTo(len * 0.95, 0);
+        ctx.stroke();
+        break;
+      }
+      case "spear": {
+        const len = size * 1.55;
+        glow(len);
+        ctx.strokeStyle = wood;
+        ctx.lineWidth = lw * 0.8;
+        ctx.beginPath();
+        ctx.moveTo(-size * 0.1, 0);
+        ctx.lineTo(len * 0.82, 0);
+        ctx.stroke();
+        ctx.fillStyle = steel;
+        ctx.beginPath();
+        ctx.moveTo(len * 0.82, -size * 0.08);
+        ctx.lineTo(len, 0);
+        ctx.lineTo(len * 0.82, size * 0.08);
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = color;
+        ctx.lineWidth = Math.max(1, size * 0.02);
+        ctx.beginPath();
+        ctx.moveTo(len * 0.84, 0);
+        ctx.lineTo(len * 0.98, 0);
+        ctx.stroke();
+        break;
+      }
+      case "axe": {
+        const len = size * 0.9;
+        glow(len);
+        ctx.strokeStyle = wood;
+        ctx.lineWidth = lw;
+        ctx.beginPath();
+        ctx.moveTo(-size * 0.08, 0);
+        ctx.lineTo(len, 0);
+        ctx.stroke();
+        ctx.fillStyle = steel;
+        ctx.beginPath();
+        ctx.moveTo(len * 0.62, -size * 0.02);
+        ctx.quadraticCurveTo(len * 0.78, -size * 0.36, len * 0.99, -size * 0.18);
+        ctx.lineTo(len * 0.9, -size * 0.02);
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = color;
+        ctx.lineWidth = Math.max(1, size * 0.022);
+        ctx.beginPath();
+        ctx.moveTo(len * 0.8, -size * 0.31);
+        ctx.lineTo(len * 0.97, -size * 0.17);
+        ctx.stroke();
+        break;
+      }
+      case "hammer": {
+        const len = size * 0.85;
+        glow(len);
+        ctx.strokeStyle = wood;
+        ctx.lineWidth = lw;
+        ctx.beginPath();
+        ctx.moveTo(-size * 0.08, 0);
+        ctx.lineTo(len, 0);
+        ctx.stroke();
+        const hw = size * 0.24;
+        const hh = size * 0.32;
+        ctx.fillStyle = steel;
+        ctx.fillRect(len - hw * 0.5, -hh / 2, hw, hh);
+        ctx.fillStyle = "rgba(255,255,255,0.28)";
+        ctx.fillRect(len - hw * 0.5, -hh / 2, hw, hh * 0.26);
+        ctx.fillStyle = color;
+        ctx.fillRect(len - hw * 0.5, -hh * 0.1, hw, hh * 0.2);
+        break;
+      }
+      case "scythe": {
+        const len = size * 1.0;
+        glow(len);
+        ctx.strokeStyle = wood;
+        ctx.lineWidth = lw;
+        ctx.beginPath();
+        ctx.moveTo(-size * 0.1, 0);
+        ctx.lineTo(len, 0);
+        ctx.stroke();
+        ctx.strokeStyle = steel;
+        ctx.lineWidth = Math.max(2, size * 0.08);
+        ctx.beginPath();
+        ctx.moveTo(len, 0);
+        ctx.quadraticCurveTo(len - size * 0.1, -size * 0.5, len - size * 0.6, -size * 0.42);
+        ctx.stroke();
+        ctx.strokeStyle = color;
+        ctx.lineWidth = Math.max(1, size * 0.03);
+        ctx.beginPath();
+        ctx.moveTo(len, 0);
+        ctx.quadraticCurveTo(len - size * 0.12, -size * 0.46, len - size * 0.55, -size * 0.4);
+        ctx.stroke();
+        break;
+      }
+      case "staff":
+      default: {
+        const len = size * 0.95;
+        ctx.strokeStyle = wood;
+        ctx.lineWidth = lw;
+        ctx.beginPath();
+        ctx.moveTo(-size * 0.1, 0);
+        ctx.lineTo(len * 0.9, 0);
+        ctx.stroke();
+        const orbR = size * 0.3 * (attacking ? 1.4 : 1);
+        const pulse = 0.6 + 0.4 * Math.sin(time * 6);
+        ctx.save();
+        ctx.globalCompositeOperation = "lighter";
+        const g = ctx.createRadialGradient(len, 0, 0, len, 0, orbR);
+        g.addColorStop(0, color);
+        g.addColorStop(1, "rgba(0,0,0,0)");
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.arc(len, 0, orbR * pulse, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(len, 0, size * 0.1, 0, Math.PI * 2);
+        ctx.fill();
+        break;
+      }
+    }
+  }
+
+  /** A quarterstaff, drawn through the origin (caller sets the spin transform). */
+  private drawQuarterstaff(size: number, color: string) {
+    const ctx = this.ctx;
+    const half = size * 0.72;
+    ctx.lineCap = "round";
+    ctx.strokeStyle = "#7a5230";
+    ctx.lineWidth = Math.max(2, size * 0.09);
+    ctx.beginPath();
+    ctx.moveTo(-half, 0);
+    ctx.lineTo(half, 0);
+    ctx.stroke();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = Math.max(2, size * 0.1);
+    ctx.beginPath();
+    ctx.moveTo(half * 0.68, 0);
+    ctx.lineTo(half, 0);
+    ctx.moveTo(-half, 0);
+    ctx.lineTo(-half * 0.68, 0);
+    ctx.stroke();
+  }
+
+  /** A bow with a nocked arrow, pointing +X. prog<0 = at rest; 0..1 = released. */
+  private drawBow(size: number, color: string, prog: number) {
+    const ctx = this.ctx;
+    const R = size * 0.5;
+    ctx.lineCap = "round";
+    ctx.strokeStyle = "#8a5a32";
+    ctx.lineWidth = Math.max(2, size * 0.07);
+    ctx.beginPath();
+    ctx.arc(0, 0, R, -Math.PI * 0.6, Math.PI * 0.6);
+    ctx.stroke();
+    const tipX = Math.cos(Math.PI * 0.6) * R;
+    const tipY = Math.sin(Math.PI * 0.6) * R;
+    const pull = prog < 0 ? -size * 0.18 : -size * 0.18 * (1 - Math.min(1, prog * 2));
+    ctx.strokeStyle = "rgba(240,240,255,0.85)";
+    ctx.lineWidth = Math.max(1, size * 0.02);
+    ctx.beginPath();
+    ctx.moveTo(tipX, -tipY);
+    ctx.lineTo(pull, 0);
+    ctx.lineTo(tipX, tipY);
+    ctx.stroke();
+    if (prog < 0.25) {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = Math.max(1, size * 0.03);
+      ctx.beginPath();
+      ctx.moveTo(pull, 0);
+      ctx.lineTo(R * 0.95, 0);
+      ctx.stroke();
+    }
   }
 
   private drawEnemy(e: Enemy) {
@@ -1001,6 +1356,28 @@ export class Renderer {
     const x = this.sx(p.x);
     const y = this.sy(p.y);
     const r = p.radius * this.scale;
+    if (p.friendly) {
+      // player-owned shot: a bright bolt with a streak trailing its travel, so
+      // it reads instantly as "yours" (vs the enemies' round glowing orbs).
+      const ang = Math.atan2(p.vy, p.vx);
+      ctx.save();
+      ctx.globalCompositeOperation = "lighter";
+      ctx.translate(x, y);
+      ctx.rotate(ang);
+      const g = ctx.createLinearGradient(-r * 5, 0, r * 1.5, 0);
+      g.addColorStop(0, "rgba(0,0,0,0)");
+      g.addColorStop(1, "#ffe6a0");
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.ellipse(-r * 1.2, 0, r * 4.5, r * 0.7, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#fffdf0";
+      ctx.beginPath();
+      ctx.arc(0, 0, r * 0.9, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+      return;
+    }
     ctx.save();
     ctx.globalCompositeOperation = "lighter";
     const col = p.fromBoss ? "#ff9a3c" : "#b48cff";
@@ -1061,7 +1438,7 @@ export class Renderer {
     const x = this.sx(p.x);
     const y = this.sy(p.y);
     const reach = s.reach * this.scale;
-    const arc = Balance.player.attackArc;
+    const arc = s.arc;
     const sweep = s.angle - arc / 2 + arc * prog;
     ctx.save();
     ctx.globalCompositeOperation = "lighter";

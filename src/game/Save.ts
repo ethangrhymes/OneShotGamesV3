@@ -34,6 +34,7 @@ function defaults(): SaveData {
     audioModeVersion: 2,
     completedReach: false,
     completedGlassCountry: false,
+    characterId: "warden", // default Vessel (resolved via characterById, so safe)
   };
 }
 
