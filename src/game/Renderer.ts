@@ -1005,46 +1005,57 @@ export class Renderer {
     reachPx: number
   ) {
     const ctx = this.ctx;
+    // The hero grips the weapon at a "hand": offset a bit forward (toward aim) and
+    // to one side of the body, so it reads as held — not pasted over the sprite.
+    const handFwd = size * 0.24;
+    const handSide = size * 0.17;
+    const hx = cx + Math.cos(aim) * handFwd - Math.sin(aim) * handSide;
+    const hy = cy + Math.sin(aim) * handFwd + Math.cos(aim) * handSide;
+
     if (ch.style === "cast") {
       // raised caster pose with a recoil kick on release (the projectile is the star)
-      const off = size * 0.22 + (attacking ? -Math.sin(prog * Math.PI) * size * 0.28 : 0);
+      const out = size * 0.06 + (attacking ? -Math.sin(prog * Math.PI) * size * 0.24 : 0);
       ctx.save();
-      ctx.translate(cx + Math.cos(aim) * off, cy + Math.sin(aim) * off);
+      ctx.translate(hx, hy);
       ctx.rotate(aim);
+      ctx.translate(out, 0);
       if (ch.weapon === "bow") this.drawBow(size, ch.color, attacking ? prog : -1);
       else this.drawWeaponShape("staff", size, ch.color, time, attacking);
       ctx.restore();
       return;
     }
     if (ch.style === "spin") {
-      // quarterstaff whirl: spins fast on attack, idle slow-turn at rest
+      // quarterstaff whirl: spun around the body — a centre pivot reads correctly here
       const a = attacking ? aim + prog * Math.PI * 4 : time * 2.2;
       if (attacking) this.softGlowPx(cx, cy, reachPx * 0.9, ch.color, 0.22 * (1 - prog));
       ctx.save();
-      ctx.translate(cx, cy);
+      ctx.translate(cx, cy - size * 0.02);
       ctx.rotate(a);
       this.drawQuarterstaff(size, ch.color);
       ctx.restore();
       return;
     }
     if (ch.style === "thrust") {
-      // spear / dagger: jab out along aim and snap back
-      const ext = attacking ? Math.sin(prog * Math.PI) * size * 0.9 : Math.sin(time * 3 + bob) * 1.5;
-      const off = size * 0.16 + ext;
+      // spear / dagger: held forward at the hand; jabs out along aim and snaps back
+      const ext = attacking ? Math.sin(prog * Math.PI) * size * 0.95 : Math.sin(time * 3 + bob) * 1.5;
       ctx.save();
-      ctx.translate(cx + Math.cos(aim) * off, cy + Math.sin(aim) * off);
+      ctx.translate(hx, hy);
       ctx.rotate(aim);
+      ctx.translate(size * 0.05 + ext, 0);
       this.drawWeaponShape(ch.weapon, size, ch.color, time, attacking);
       ctx.restore();
       return;
     }
-    // default: swing (sword / axe / hammer / scythe / cutlass)
-    const span = Math.min(Math.PI * 1.15, Balance.player.attackArc * ch.arcMult);
-    const a = attacking ? aim - span / 2 + span * prog : aim - span * 0.16 + Math.sin(time * 2.4 + bob) * 0.05;
+    // default: swing (sword / axe / hammer / scythe / cutlass). Pivot at the hand and
+    // thrust the arm OUT across the swing so the blade arcs in FRONT of the body
+    // rather than sweeping through it.
+    const span = Math.min(Math.PI * 1.05, Balance.player.attackArc * ch.arcMult);
+    const a = attacking ? aim - span / 2 + span * prog : aim - span * 0.12 + Math.sin(time * 2.4 + bob) * 0.05;
+    const reach = size * 0.12 + (attacking ? Math.sin(prog * Math.PI) * size * 0.34 : 0);
     ctx.save();
-    ctx.translate(cx, cy);
+    ctx.translate(hx, hy);
     ctx.rotate(a);
-    ctx.translate(size * 0.14, 0); // grip sits a little out from the body
+    ctx.translate(reach, 0); // grip extends from the hand, pushed further out mid-swing
     this.drawWeaponShape(ch.weapon, size, ch.color, time, attacking);
     ctx.restore();
   }
