@@ -56,7 +56,7 @@ export class World {
     return "door_" + id;
   }
 
-  /** Is a door currently passable, given the run's flags? */
+  /** Is a door currently passable, given the run's flags / upgrades? */
   isDoorOpen(d: DoorDef, run: RunState): boolean {
     switch (d.type) {
       case "open":
@@ -68,6 +68,12 @@ export class World {
         return run.getFlag(World.doorFlag(d.id));
       case "shortcut":
         return d.flag ? run.getFlag(d.flag) : run.getFlag(World.doorFlag(d.id));
+      case "crystalGate":
+        // a crystal gate opens once its crystal switch lights the matching flag
+        return d.flag ? run.getFlag(d.flag) : run.getFlag(World.doorFlag(d.id));
+      case "mirror":
+        // a mirror gate wakes only once the Crystal Shard is held (both sides)
+        return run.crystalShard;
       default:
         return true;
     }

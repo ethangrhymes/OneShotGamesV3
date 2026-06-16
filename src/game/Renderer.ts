@@ -351,6 +351,9 @@ export class Renderer {
       case "saltgrass":
         // war-coast verge (Tiny Battle grass); variant 3 = stone causeway
         return variant === 1 ? "tb_grass_b" : variant === 2 ? "tb_grass_flower" : variant === 3 ? "tb_road" : "tb_grass";
+      case "glass":
+        // bright glass-country ground (Tiny Ski snow/ice)
+        return variant === 1 ? "sk_ice" : variant === 2 ? "sk_snow_b" : variant === 3 ? "sk_ice_b" : "sk_snow";
       case "path":
         return "tt_path";
       case "dirt":
@@ -394,6 +397,11 @@ export class Renderer {
     if (cell.kind === "floor") {
       this.blit(this.floorKey(room.def.floor, cell.variant), px, py, sz, sz) || this.fallbackFloor(px, py, sz, room.def.floor);
     } else if (cell.kind === "wall") {
+      // glass-country walls are procedural bright crystal blocks
+      if (room.def.wall === "glass") {
+        this.fallbackGlassWall(px, py, sz, cell.variant);
+        return;
+      }
       // outdoor "hedge" walls: lay grass beneath the tree so edges read cleanly
       if (room.def.wall === "hedge") this.blit("tt_grass", px, py, sz, sz);
       this.blit(this.wallKey(room.def.wall, cell.variant), px, py, sz, sz) ||
@@ -422,10 +430,29 @@ export class Renderer {
         if (c.kind !== "hazard") continue;
         const px = Math.round(this.sx(tx * TILE));
         const py = Math.round(this.sy(ty * TILE));
+        const pulse = 0.5 + 0.5 * Math.sin(time * 3 + tx + ty);
+        if (room.def.theme === "glass") {
+          // Shard Floor: cracked glass that pulses before it bites
+          this.blit(this.floorKey("glass", 0), px, py, ts, ts) || this.fallbackFloor(px, py, ts, "glass");
+          ctx.save();
+          ctx.globalAlpha = 0.5 + 0.45 * pulse;
+          ctx.strokeStyle = "rgba(120,200,255,0.9)";
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.moveTo(px + ts * 0.2, py + ts * 0.15);
+          ctx.lineTo(px + ts * 0.5, py + ts * 0.55);
+          ctx.lineTo(px + ts * 0.3, py + ts * 0.85);
+          ctx.moveTo(px + ts * 0.5, py + ts * 0.55);
+          ctx.lineTo(px + ts * 0.82, py + ts * 0.7);
+          ctx.moveTo(px + ts * 0.5, py + ts * 0.55);
+          ctx.lineTo(px + ts * 0.7, py + ts * 0.2);
+          ctx.stroke();
+          ctx.restore();
+          continue;
+        }
         // floor under
         this.blit(room.def.floor === "dirt" ? "floor_dirt" : "floor", px, py, ts, ts) || this.fallbackFloor(px, py, ts, room.def.floor);
         // spikes (use trap sprite; pulse to telegraph)
-        const pulse = 0.5 + 0.5 * Math.sin(time * 3 + tx + ty);
         ctx.globalAlpha = 0.55 + 0.45 * pulse;
         this.blit("trap", px, py, ts, ts) ||
           (() => {
@@ -484,12 +511,25 @@ export class Renderer {
     const ctx = this.ctx;
     const ts = Math.ceil(TILE * this.scale) + 1;
     const outdoor = room.def.theme === "outdoor";
+    const glass = room.def.theme === "glass";
     for (const d of room.doors) {
       const px = Math.round(this.sx(d.def.tx * TILE));
       const py = Math.round(this.sy(d.def.ty * TILE));
+      // --- Phase 4 mechanic doors (procedural light) ---
+      if (d.def.type === "mirror") {
+        this.drawMirrorGate(d.def.tx, d.def.ty, d.open);
+        continue;
+      }
+      if (d.def.type === "crystalGate") {
+        if (!d.open) this.drawCrystalGate(px, py, ts, this.crystalColor(d.def.flag));
+        continue; // open crystal gate = a gap (floor shows through)
+      }
       if (d.open) {
-        // outdoor open passages are just a gap in the trees/wall (floor shows through)
-        if (!outdoor) this.blit("door_open", px, py, ts, ts);
+        // outdoor/glass open passages are just a gap (floor shows through)
+        if (!outdoor && !glass) this.blit("door_open", px, py, ts, ts);
+      } else if (glass) {
+        // a frozen-shut glass gate (non-mechanic): a pale ice barrier
+        this.drawCrystalGate(px, py, ts, "#bfe6ff");
       } else {
         const gate = d.def.type === "bossGate" || d.def.type === "shortcut";
         if (outdoor) {
@@ -507,6 +547,95 @@ export class Renderer {
         }
       }
     }
+  }
+
+  /** Map a crystal flag (crystal_red_lit, …) to its glow colour. */
+  private crystalColor(flag?: string): string {
+    if (!flag) return "#7fe0ff";
+    if (flag.includes("red")) return "#ff6a7a";
+    if (flag.includes("blue")) return "#5aa6ff";
+    if (flag.includes("gold")) return "#ffce5a";
+    if (flag.includes("green")) return "#7fe0a0";
+    return "#7fe0ff";
+  }
+
+  /** A closed crystal gate: glowing faceted bars in the gate's colour. */
+  private drawCrystalGate(px: number, py: number, ts: number, color: string) {
+    const ctx = this.ctx;
+    const cx = px + ts / 2;
+    const cy = py + ts / 2;
+    this.softGlowPx(cx, cy, ts * 0.85, color, 0.3);
+    const pulse = 0.6 + 0.4 * Math.sin(this.timeAcc * 4);
+    ctx.save();
+    ctx.fillStyle = color;
+    ctx.globalAlpha = 0.55 + 0.35 * pulse;
+    for (let i = 0; i < 3; i++) {
+      const bx = px + ts * (0.22 + i * 0.28);
+      ctx.beginPath();
+      ctx.moveTo(bx, py + 2);
+      ctx.lineTo(bx + ts * 0.11, py + ts * 0.5);
+      ctx.lineTo(bx, py + ts - 2);
+      ctx.lineTo(bx - ts * 0.11, py + ts * 0.5);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  /** A mirror gate: a swirling portal (active = Shard held) or a dormant cracked mirror. */
+  private drawMirrorGate(tx: number, ty: number, active: boolean) {
+    const ctx = this.ctx;
+    const ts = TILE * this.scale;
+    const cx = this.sx(tx * TILE + TILE / 2);
+    const cy = this.sy(ty * TILE + TILE / 2);
+    const t = this.timeAcc;
+    ctx.save();
+    if (active) {
+      this.softGlowPx(cx, cy, ts * 0.8, "#bfe6ff", 0.4);
+      ctx.globalCompositeOperation = "lighter";
+      for (let i = 0; i < 4; i++) {
+        const k = (i + 1) / 4;
+        ctx.strokeStyle = `rgba(150,220,255,${0.3 - i * 0.05 + 0.08 * Math.sin(t * 3 + i)})`;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.ellipse(cx, cy, ts * 0.4 * k, ts * 0.58 * k, t * 0.9 + i, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    } else {
+      ctx.fillStyle = "rgba(40,50,72,0.7)";
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, ts * 0.38, ts * 0.56, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "rgba(160,180,210,0.5)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(cx - ts * 0.18, cy - ts * 0.4);
+      ctx.lineTo(cx + ts * 0.1, cy + ts * 0.5);
+      ctx.stroke();
+    }
+    ctx.strokeStyle = active ? "rgba(200,240,255,0.95)" : "rgba(120,140,170,0.6)";
+    ctx.lineWidth = 2.5;
+    ctx.globalCompositeOperation = "source-over";
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, ts * 0.42, ts * 0.6, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  /** A soft additive glow at a screen-space point (px,py already screen coords). */
+  private softGlowPx(x: number, y: number, r: number, color: string, alpha = 0.4) {
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    ctx.globalAlpha = alpha;
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+    g.addColorStop(0, color);
+    g.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
   }
 
   // ----- interactables -----
@@ -542,10 +671,20 @@ export class Renderer {
       }
       case "lore":
       case "prop": {
-        // the sealed world-gate (arch) glows to draw the eye
+        // procedural glass-country props (light)
+        if (it.prop === "crystal") {
+          this.drawCrystal(this.sx(it.x), this.sy(it.y), ts * 0.42, "#9fe8ff", time, false);
+          break;
+        }
+        if (it.prop === "sunstone") {
+          this.drawSunstone(this.sx(it.x), this.sy(it.y), ts * 0.5, time);
+          break;
+        }
+        // the sealed world-gate (arch) glows to draw the eye — gold for the Sun-Gate
         if (it.prop === "arch") {
           const g = 0.5 + 0.5 * Math.sin(time * 2 + it.bob);
-          this.softGlow(it.x, it.y, ts * (1.6 + g * 0.3), "rgba(150,90,255,0.22)");
+          const gold = it.uid === "sun_gate";
+          this.softGlow(it.x, it.y, ts * (1.6 + g * 0.3), gold ? "rgba(255,210,90,0.3)" : "rgba(150,90,255,0.22)");
         }
         const key = this.propKey(it);
         if (key) this.blit(key, px, py, ts, ts) || this.fallbackProp(it, px, py, ts);
@@ -561,8 +700,14 @@ export class Renderer {
         break;
       }
       case "lever": {
-        this.blit("anvil", px, py, ts, ts) || this.fallbackProp(it, px, py, ts);
-        if (!it.used) this.softGlow(it.x, it.y, ts * 0.8, "rgba(120,220,160,0.2)");
+        // a crystal switch (setsFlag "crystal_*") renders as a faceted gem that
+        // glows brighter once lit; ordinary levers stay anvils.
+        if (it.setsFlag && String(it.setsFlag).startsWith("crystal_")) {
+          this.drawCrystal(this.sx(it.x), this.sy(it.y), ts * 0.42, this.crystalColor(it.setsFlag), time, !!it.used);
+        } else {
+          this.blit("anvil", px, py, ts, ts) || this.fallbackProp(it, px, py, ts);
+          if (!it.used) this.softGlow(it.x, it.y, ts * 0.8, "rgba(120,220,160,0.2)");
+        }
         break;
       }
       case "seal": {
@@ -573,6 +718,10 @@ export class Renderer {
       }
       case "upgrade": {
         const yy = py + bob;
+        if (it.ref === "crystalShard") {
+          this.drawCrystalShard(this.sx(it.x), this.sy(it.y) + bob, ts * 0.4, time);
+          break;
+        }
         this.softGlow(it.x, it.y, ts * 1.1, "rgba(120,200,255,0.25)");
         const key = this.upgradeKey(it.ref);
         this.blit(key, px, Math.round(yy), ts, ts) || this.fallbackRing(px, Math.round(yy), ts);
@@ -643,17 +792,91 @@ export class Renderer {
         return "tb_dune";
       case "warcross":
         return "tb_cross";
+      // glass-country props (pylon/shrine = Tiny Ski; crystal/sunstone = procedural)
+      case "pylon":
+        return "sk_pylon";
+      case "shrine":
+        return "sk_lodge";
       default:
         return "barrel";
     }
   }
   private upgradeKey(ref?: string): string {
-    if (ref === "heartVessel" || ref === "brineHeart") return "potion_red";
+    if (ref === "heartVessel" || ref === "brineHeart" || ref === "glassHeart") return "potion_red";
     if (ref === "wardensEdge") return "sword";
     if (ref === "swiftBoots") return "potion_blue";
     if (ref === "emberHeart") return "tt_relic";
     if (ref === "tideRelic") return "ring"; // the drowned king's signet
     return "ring";
+  }
+
+  /** A bright multi-point crystal shard (procedural — the Crystal Shard upgrade). */
+  private drawCrystalShard(cx: number, cy: number, r: number, time: number) {
+    const ctx = this.ctx;
+    this.softGlowPx(cx, cy, r * 2.2, "#a8ecff", 0.5);
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(Math.sin(time * 1.5) * 0.15);
+    ctx.fillStyle = "#dffaff";
+    ctx.strokeStyle = "#6fc8f0";
+    ctx.lineWidth = Math.max(1, r * 0.08);
+    ctx.beginPath();
+    ctx.moveTo(0, -r);
+    ctx.lineTo(r * 0.5, -r * 0.1);
+    ctx.lineTo(r * 0.3, r);
+    ctx.lineTo(-r * 0.3, r);
+    ctx.lineTo(-r * 0.5, -r * 0.1);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.strokeStyle = "rgba(120,200,240,0.7)";
+    ctx.beginPath();
+    ctx.moveTo(0, -r);
+    ctx.lineTo(0, r);
+    ctx.moveTo(-r * 0.5, -r * 0.1);
+    ctx.lineTo(r * 0.5, -r * 0.1);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  /** A faceted glowing crystal (decor prop, or a crystal switch when `lit`/colored). */
+  private drawCrystal(cx: number, cy: number, r: number, color: string, time: number, lit: boolean) {
+    const ctx = this.ctx;
+    const pulse = lit ? 0.7 + 0.3 * Math.sin(time * 5) : 0.35 + 0.15 * Math.sin(time * 2);
+    this.softGlowPx(cx, cy, r * (lit ? 2.4 : 1.6), color, lit ? 0.5 : 0.28);
+    ctx.save();
+    ctx.globalAlpha = 0.85;
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - r);
+    ctx.lineTo(cx + r * 0.6, cy - r * 0.2);
+    ctx.lineTo(cx + r * 0.35, cy + r * 0.9);
+    ctx.lineTo(cx - r * 0.35, cy + r * 0.9);
+    ctx.lineTo(cx - r * 0.6, cy - r * 0.2);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = `rgba(255,255,255,${0.25 + 0.35 * pulse})`;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - r);
+    ctx.lineTo(cx + r * 0.6, cy - r * 0.2);
+    ctx.lineTo(cx, cy + r * 0.2);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+
+  /** The buried sun: a large slow radial glow with a bright core. */
+  private drawSunstone(cx: number, cy: number, r: number, time: number) {
+    const ctx = this.ctx;
+    const pulse = 0.8 + 0.2 * Math.sin(time * 1.5);
+    this.softGlowPx(cx, cy, r * 3.2 * pulse, "#ffe08a", 0.5);
+    this.softGlowPx(cx, cy, r * 1.6, "#fff4d0", 0.6);
+    ctx.save();
+    ctx.fillStyle = "#fff4cf";
+    ctx.beginPath();
+    ctx.arc(cx, cy, r * 0.7, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
   }
 
   private softGlow(wx: number, wy: number, r: number, color: string) {
@@ -904,13 +1127,35 @@ export class Renderer {
         ? "#3a4452"
         : style === "grass"
         ? "#4a6b3a"
+        : style === "saltgrass"
+        ? "#3f5a44"
+        : style === "glass"
+        ? "#d4e6f6"
         : style === "path"
         ? "#6a6458"
         : "#3b3b46";
     ctx.fillStyle = col;
     ctx.fillRect(px, py, sz, sz);
-    ctx.fillStyle = "rgba(0,0,0,0.12)";
+    ctx.fillStyle = style === "glass" ? "rgba(255,255,255,0.16)" : "rgba(0,0,0,0.12)";
     ctx.fillRect(px, py, sz, 1);
+  }
+
+  /** Bright crystalline wall block for the Glass Country (procedural — no tile). */
+  private fallbackGlassWall(px: number, py: number, sz: number, variant: number) {
+    const ctx = this.ctx;
+    ctx.fillStyle = variant === 1 ? "#9fc4e8" : "#b7d8f0";
+    ctx.fillRect(px, py, sz, sz);
+    // facet highlight + shadow for a cut-glass read
+    ctx.fillStyle = "rgba(255,255,255,0.45)";
+    ctx.beginPath();
+    ctx.moveTo(px, py);
+    ctx.lineTo(px + sz, py);
+    ctx.lineTo(px, py + sz);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = "rgba(70,110,160,0.4)";
+    ctx.fillRect(px, py + sz - 2, sz, 2);
+    ctx.fillRect(px + sz - 2, py, 2, sz);
   }
   private fallbackHedge(px: number, py: number, sz: number) {
     const ctx = this.ctx;

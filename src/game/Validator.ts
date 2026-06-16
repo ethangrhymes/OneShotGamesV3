@@ -134,6 +134,21 @@ export function validateAct(act: WorldAct): ValidationIssue[] {
     if (!fullReach.rooms.has(id)) err("unreachable", `Room "${id}" is not reachable from the start under intended progression.`);
   }
 
+  // Phase 4: the Crystal Shard must be obtainable WITHOUT a mirror gate, since
+  // mirrors need the Shard — otherwise it is gated behind itself (soft-lock).
+  const shardRoom = findRoomWithSpawn(
+    rooms,
+    (s) => (s.kind === "upgrade" && s.ref === "crystalShard") || (s.kind === "chest" && s.contains?.upgrade === "crystalShard")
+  );
+  if (shardRoom) {
+    const noMirror = computeReachable(act, rooms, startRoom, { allowKeys: true, allowMirror: false });
+    if (!noMirror.rooms.has(shardRoom))
+      err(
+        "shard-self-gated",
+        `Crystal Shard room "${shardRoom}" is only reachable through a mirror gate — the Shard must be obtainable without one (mirror gates require the Shard).`
+      );
+  }
+
   // boss room + post-boss must be reachable WITHOUT consuming keys (no soft-lock)
   const bossRoom = findRoomWithSpawn(rooms, (s) => s.kind === "boss");
   if (bossRoom && !keyFreeReach.rooms.has(bossRoom))
@@ -275,17 +290,20 @@ interface ReachResult {
   maxSealsBefore: Map<string, number>;
 }
 
-/** Monotonic fixpoint reachability. */
+/** Monotonic fixpoint reachability. `allowMirror` lets the no-mirror pass prove the
+ * Crystal Shard isn't gated behind a mirror (mirrors need the Shard). */
 function computeReachable(
   act: WorldAct,
   rooms: Map<string, RoomDef>,
   start: string,
-  opts: { allowKeys: boolean }
+  opts: { allowKeys: boolean; allowMirror?: boolean }
 ): ReachResult {
+  const allowMirror = opts.allowMirror ?? true;
   const reach = new Set<string>([start]);
   const flags = new Set<GameFlag>();
   let keys = 0;
   let seals = 0;
+  let crystalShard = false; // Phase 4: obtainable once a reachable room holds the Shard
 
   // count total obtainable seals across the whole act (upper bound)
   let totalSeals = 0;
@@ -306,15 +324,18 @@ function computeReachable(
     // collect items/flags from all reachable rooms
     keys = 0;
     seals = 0;
+    crystalShard = false;
     for (const id of reach) {
       const def = rooms.get(id)!;
       for (const s of def.spawns) {
         if (s.kind === "key") keys += 1;
         if (s.kind === "seal") seals += 1;
         if (s.kind === "lever" && s.setsFlag) flags.add(s.setsFlag);
+        if (s.kind === "upgrade" && s.ref === "crystalShard") crystalShard = true;
         if (s.kind === "chest" && s.contains) {
           if (s.contains.key) keys += s.contains.key;
           if (s.contains.seal) seals += s.contains.seal;
+          if (s.contains.upgrade === "crystalShard") crystalShard = true;
         }
         if (s.kind === "miniboss" || s.kind === "boss") {
           const bdef = act.bosses[s.ref ?? ""];
@@ -343,6 +364,14 @@ function computeReachable(
             break;
           case "shortcut":
             passable = d.flag ? flags.has(d.flag) : true;
+            break;
+          case "crystalGate":
+            // opens once its crystal switch (a lever for the flag) is reachable
+            passable = d.flag ? flags.has(d.flag) : true;
+            break;
+          case "mirror":
+            // wakes only once the Crystal Shard is obtainable
+            passable = allowMirror && crystalShard;
             break;
         }
         if (passable) {

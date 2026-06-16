@@ -625,12 +625,14 @@ export class Boss {
         hooks.sfx("bosshit");
         hooks.shake(4);
         break;
-      case "summon":
-        hooks.spawnAdd("wraith", this.x - 28, this.y);
-        hooks.spawnAdd("wraith", this.x + 28, this.y);
+      case "summon": {
+        const add = this.def.summonRef ?? "wraith";
+        hooks.spawnAdd(add, this.x - 28, this.y);
+        hooks.spawnAdd(add, this.x + 28, this.y);
         hooks.sfx("gate");
         hooks.burst(this.x, this.y, "#b48cff", 16);
         break;
+      }
     }
   }
 

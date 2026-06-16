@@ -94,16 +94,21 @@ export class RunState {
   // ---- derived stats ----
   get heartVesselCount(): number {
     // each max-heart upgrade adds one (Heart Vessel = Act I, Ember Heart = Round 2,
-    // Brine Heart = Phase 3 / the Drowned Gear)
+    // Brine Heart = Phase 3, Glass Heart = Phase 4)
     return (
       (this.upgrades.has("heartVessel") ? 1 : 0) +
       (this.upgrades.has("emberHeart") ? 1 : 0) +
-      (this.upgrades.has("brineHeart") ? 1 : 0)
+      (this.upgrades.has("brineHeart") ? 1 : 0) +
+      (this.upgrades.has("glassHeart") ? 1 : 0)
     );
   }
   /** Phase 3: the Tide Relic lets the player ford shallow tide-water. */
   get tideUnlocked(): boolean {
     return this.upgrades.has("tideRelic");
+  }
+  /** Phase 4: the Crystal Shard wakes dormant mirror gates. */
+  get crystalShard(): boolean {
+    return this.upgrades.has("crystalShard");
   }
   get maxHearts(): number {
     return (
@@ -157,7 +162,7 @@ export class RunState {
     const had = this.upgrades.has(id);
     this.upgrades.add(id);
     // gaining a max-heart upgrade also tops you up by the new heart
-    if ((id === "heartVessel" || id === "emberHeart" || id === "brineHeart") && !had)
+    if ((id === "heartVessel" || id === "emberHeart" || id === "brineHeart" || id === "glassHeart") && !had)
       this.hp = Math.min(this.maxHp, this.hp + Balance.player.hpPerHeart);
   }
   heal(pips: number) {

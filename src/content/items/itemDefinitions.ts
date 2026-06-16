@@ -67,6 +67,22 @@ export const itemDefinitions: Record<string, ItemDef> = {
     description: "A heart pickled in salt and sorrow, torn from the toll-engine. Maximum hearts +1.",
     upgrade: "brineHeart",
   },
+  crystalShard: {
+    id: "crystalShard",
+    name: "Crystal Shard",
+    kind: "upgrade",
+    sprite: "ring",
+    description: "A bright fragment of the buried sun, cold enough to hold. Dormant mirror gates wake at your touch — step through the glass.",
+    upgrade: "crystalShard",
+  },
+  glassHeart: {
+    id: "glassHeart",
+    name: "Glass Heart",
+    kind: "upgrade",
+    sprite: "potion_red",
+    description: "A heart of cut glass, taken from the Warden. It rings when you breathe. Maximum hearts +1.",
+    upgrade: "glassHeart",
+  },
   potion: {
     id: "potion",
     name: "Ember Draught",

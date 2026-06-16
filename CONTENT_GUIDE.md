@@ -71,9 +71,12 @@ A `RoomDef` (see examples in [`src/content/acts/act1.ts`](src/content/acts/act1.
 | `B` | **bridge** planks — always walkable, spans water |
 | (space) | void / outside the room |
 
-`floor` styles: `stone` / `dirt` / `tile` / `grass` / `path` / `saltgrass` (the
-war-coast verge). `wall` styles: `brick` / `stone` / `townstone` / `redbrick` /
-`wood` / `hedge`. `music`: `explore` / `boss` / `region` / `reach`.
+`floor` styles: `stone` / `dirt` / `tile` / `grass` / `path` / `saltgrass` (war-coast
+verge) / `glass` (bright ice-glass ground). `wall` styles: `brick` / `stone` /
+`townstone` / `redbrick` / `wood` / `hedge` / `glass` (procedural cut-glass). `theme`:
+`dungeon` / `outdoor` / `glass` (a glass theme makes `~` render as a cracked **shard
+floor** and doors render as ice gaps). `music`: `explore` / `boss` / `region` /
+`reach` / `glass`.
 
 Door openings on the wall border are **carved automatically** from each door's
 `(tx, ty)` — don't punch holes in the border yourself; just place the door.
@@ -109,6 +112,8 @@ way the player is nudged inward on arrival.
 | `shortcut` | sealed until a world `flag` is set (e.g. a lever). Opens on **both** sides at once |
 | `oneWay` | treated as open (use for drops); add real one-way logic if you need it |
 | `requiresItem` | reserved hook; currently behaves like `locked` |
+| `crystalGate` | Phase 4: opens when its `flag` (a `crystal_<colour>_lit`) is set by a matching crystal switch; renders as colour-coded crystal bars |
+| `mirror` | Phase 4: a teleport door that wakes only once the **Crystal Shard** upgrade is held (`run.crystalShard`); renders as a swirling portal. `to`/`toDoorId` may target a non-adjacent room |
 
 Add `lockedHint: "..."` to show the player why a door won't open.
 
@@ -164,6 +169,35 @@ you can copy for future mechanics (lava + a charm, root-walls + an ember, etc.):
    traversal"): a *with-fording* flood (shallow walkable) confirms every spawn is
    reachable, and a *without-fording* flood (shallow + deep blocked) confirms every
    door still reaches every other door — so a missing relic can never soft-lock you.
+
+---
+
+## Crystal switches + Mirror gates (Phase 4 — gates by flag and by upgrade)
+
+The Glass Country shows two reusable patterns for content-only mechanic gates:
+
+1. **Crystal switch → crystal gate** (a coloured, flag-driven gate):
+   - A switch is just a `lever` whose `setsFlag` is `crystal_<colour>_lit`
+     (`crystal_red_lit`, `crystal_gold_lit`, …). It renders as a faceted gem (the
+     renderer detects the `crystal_` prefix) and lights when pulled.
+   - A gate is a door of `type: "crystalGate"` sharing that `flag`. `World.isDoorOpen`
+     opens it once the flag is set; pulling the switch calls `refreshDoors()` for you.
+   - Put the switch in a room reachable **before** the gate it opens. Teach it on the
+     critical path with one colour (the RED gate), and reuse other colours for optional
+     loot. The validator treats a `crystalGate` exactly like a flag-gated `shortcut`.
+
+2. **Mirror gate → Crystal Shard** (an upgrade-gated teleport door):
+   - A `type: "mirror"` door teleports to its `to`/`toDoorId` partner (which may be a
+     **non-adjacent** room), but only once `run.crystalShard` is true. It renders as a
+     swirling portal (dormant cracked mirror without the Shard). Grant the Shard and
+     `Game.grantUpgrade` calls `refreshDoors()` so nearby mirrors wake instantly.
+   - **Never place the Crystal Shard behind a mirror gate.** The validator's
+     `shard-self-gated` check floods reachability *with mirrors disabled* and errors if
+     the Shard's room isn't reachable that way. Mirrors may gate the run forward, a
+     shortcut home, or a secret room — the Shard itself must be Shard-free to reach.
+
+Both are pure data: a `lever`, a couple of door `type`s, and an `UpgradeId` with a
+`crystalShard` getter in `Progression.ts`. No new engine systems.
 
 ---
 
@@ -339,11 +373,14 @@ A region is a `RegionDef` (id, name, theme, `accent` minimap color, `startRoomId
    journey-progress card that ticks off cleared world segments and names the next
    sealed one. Copy that pattern for the next region.
 
-Two `RegionDef` examples to crib from:
-[`rootwardRoad.ts`](src/content/regions/rootwardRoad.ts) (a linear outdoor road) and
-[`saltblackReach.ts`](src/content/regions/saltblackReach.ts) (a spine with N/S
-branches plus the tide mechanic). The Reach is reached by an **open** door east out of
-`rr_causeway` — reaching the causeway already gates it, so no extra flag is needed.
+Three `RegionDef` examples to crib from:
+[`rootwardRoad.ts`](src/content/regions/rootwardRoad.ts) (a linear outdoor road),
+[`saltblackReach.ts`](src/content/regions/saltblackReach.ts) (a spine with N/S branches
+plus the tide mechanic), and [`glassCountry.ts`](src/content/regions/glassCountry.ts)
+(a hub-and-branch layout with crystal gates, mirror teleports and a secret room). Each
+region is reached by an **open** door east out of the previous region's endpoint
+(`rr_causeway → sr_landing`, `sr_drowngate → gc_threshold`) — reaching the endpoint
+already gates it, so no extra flag is needed.
 
 ### Adding post-boss / future-gate content
 
@@ -370,6 +407,11 @@ dev** (`import.meta.env.DEV`). It:
   block) to prove every door still reaches every other door. So ford-gated loot
   validates, **and** a missing Tide Relic can never seal off the critical path. It
   also errors on a non-prop spawn sitting in **deep water**.
+- is **crystal/mirror-aware**: a `crystalGate` is passable once its `flag` is
+  obtainable (a crystal switch in a reachable room); a `mirror` is passable once the
+  Crystal Shard is obtainable. It re-runs reachability *with mirrors disabled* and
+  errors (`shard-self-gated`) if the Crystal Shard's room is only reachable through a
+  mirror — guaranteeing the Shard is never gated behind itself.
 
 In production it does not run (shipped content is pre-validated), so players never
 crash on it. To read the output, open the browser console after `npm run dev` — a
@@ -400,9 +442,11 @@ boss always forces `boss`), marks **safe** rooms (`room.isSafe`), and computes a
 
 - To add a region's ambience, set its rooms' `music` to a biome and (optionally) add a
   matching clip candidate in `prepare-assets.mjs` (`music_region2.ogg`,
-  `music_reach.ogg`, …). With no clip, the synth drone in `AudioManager.startDrone`
-  plays — give the biome its own root/intervals/bells. The Reach uses a deep E1 root
-  with a beating minor-second for a drowned, tidal hush.
+  `music_reach.ogg`, `music_glass.ogg`, …). With no clip, the synth drone in
+  `AudioManager.startDrone` plays — give the biome its own root/intervals/bells. The
+  Reach uses a deep E1 root with a beating minor-second (drowned, tidal); the Glass
+  Country uses a higher C2 root with a high shimmer and bright bells (refracted). New
+  one-shot stings (e.g. `crystal`, `mirror`) are added to the `Sfx` union + `play()`.
 - The **combat layer** (`AudioManager.startCombatLayer`) is a dark pulse gated by
   `combatGain`; it fades in via `combatTarget`. Keep new layers quiet — "darker, not
   louder." Everything is synth-backed, so it never crashes if `.ogg` won't decode.

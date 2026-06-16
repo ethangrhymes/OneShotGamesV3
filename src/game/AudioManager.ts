@@ -22,11 +22,13 @@ export type Sfx =
   | "checkpoint"
   | "select"
   | "shortcut"
+  | "crystal"
+  | "mirror"
   | "victory"
   | "gameover";
 
 /** A music "biome" picks the base bed; combat/safe modulate intensity on top. */
-type Biome = "explore" | "boss" | "region" | "reach";
+type Biome = "explore" | "boss" | "region" | "reach" | "glass";
 
 export class AudioManager {
   private ctx: AudioContext | null = null;
@@ -118,7 +120,8 @@ export class AudioManager {
             (name === "music_explore" && this.currentMusic === "explore") ||
             (name === "music_boss" && this.currentMusic === "boss") ||
             (name === "music_region2" && this.currentMusic === "region") ||
-            (name === "music_reach" && this.currentMusic === "reach")
+            (name === "music_reach" && this.currentMusic === "reach") ||
+            (name === "music_glass" && this.currentMusic === "glass")
           ) {
             this.startMusic(this.currentMusic, true);
           }
@@ -271,6 +274,18 @@ export class AudioManager {
         this.tone({ freq: 440, to: 700, dur: 0.3, type: "triangle", gain: 0.18, delay: 0.1 });
         this.noise({ dur: 0.3, gain: 0.1, filter: 500, type: "lowpass", delay: 0.05 });
         break;
+      case "crystal":
+        // a bright glass chime (a crystal lighting / a gate opening)
+        this.tone({ freq: 1320, dur: 0.18, type: "sine", gain: 0.14 });
+        this.tone({ freq: 1760, dur: 0.24, type: "sine", gain: 0.1, delay: 0.05 });
+        this.tone({ freq: 2640, dur: 0.34, type: "sine", gain: 0.05, delay: 0.1 });
+        break;
+      case "mirror":
+        // a shimmering teleport whoosh
+        this.tone({ freq: 420, to: 1600, dur: 0.3, type: "triangle", gain: 0.12 });
+        this.noise({ dur: 0.3, gain: 0.09, filter: 3200, type: "highpass" });
+        this.tone({ freq: 1200, to: 600, dur: 0.4, type: "sine", gain: 0.07, delay: 0.08 });
+        break;
       case "lore":
         this.tone({ freq: 520, dur: 0.5, type: "sine", gain: 0.12 });
         this.tone({ freq: 780, dur: 0.6, type: "sine", gain: 0.08, delay: 0.04 });
@@ -338,20 +353,22 @@ export class AudioManager {
         ? "music_boss"
         : name === "reach"
         ? "music_reach"
+        : name === "glass"
+        ? "music_glass"
         : "music_region2";
     const buf = this.buffers.get(bufName);
-    const target = name === "boss" ? 0.3 : 0.24;
+    const target = name === "boss" ? 0.3 : name === "glass" ? 0.22 : 0.24;
 
     if (buf) {
       const src = this.ctx.createBufferSource();
       src.buffer = buf;
       src.loop = true;
       // a touch slower + a gentle low-pass keeps Kenney loops dark, not loud.
-      // The Reach runs slowest + murkiest — a drowned, tidal hush.
-      src.playbackRate.value = name === "boss" ? 0.95 : name === "reach" ? 0.85 : 0.9;
+      // The Reach runs slowest + murkiest; the Glass Country runs bright + open.
+      src.playbackRate.value = name === "boss" ? 0.95 : name === "reach" ? 0.85 : name === "glass" ? 1.0 : 0.9;
       const lp = this.ctx.createBiquadFilter();
       lp.type = "lowpass";
-      lp.frequency.value = name === "boss" ? 2600 : name === "reach" ? 1650 : 1900;
+      lp.frequency.value = name === "boss" ? 2600 : name === "reach" ? 1650 : name === "glass" ? 3400 : 1900;
       src.connect(lp);
       lp.connect(this.musicGain);
       src.start();
@@ -370,7 +387,9 @@ export class AudioManager {
     if (!this.ctx || !this.musicGain) return;
     // lower roots + minor intervals = darker than Round 1.
     // reach = E1, a deep tidal swell (lowest, widest of the beds).
-    const root = name === "boss" ? 43.65 : name === "region" ? 48.99 : name === "reach" ? 41.2 : 55.0;
+    // glass = a higher, brighter C2 root with an open, slightly-uncanny stack
+    const root =
+      name === "boss" ? 43.65 : name === "region" ? 48.99 : name === "reach" ? 41.2 : name === "glass" ? 65.41 : 55.0;
     const intervals =
       name === "boss"
         ? [1, 1.5, 1.189]
@@ -378,6 +397,8 @@ export class AudioManager {
         ? [1, 1.335, 2]
         : name === "reach"
         ? [1, 1.498, 1.122] // fifth + a beating minor second: unsettled, tidal
+        : name === "glass"
+        ? [1, 1.335, 2.245] // open fifth-ish + a high shimmer: bright, refracted
         : [1, 1.5, 1.189];
     intervals.forEach((mult, i) => {
       const osc = this.ctx!.createOscillator();
@@ -402,7 +423,7 @@ export class AudioManager {
       this.musicNodes.push(osc, lfo, lp);
     });
     // sparse, unresolved bell motif
-    const step = name === "boss" ? 2.6 : name === "region" ? 4.8 : name === "reach" ? 5.4 : 4.4;
+    const step = name === "boss" ? 2.6 : name === "region" ? 4.8 : name === "reach" ? 5.4 : name === "glass" ? 3.8 : 4.4;
     const notes =
       name === "boss"
         ? [196, 233, 174.6]
@@ -410,6 +431,8 @@ export class AudioManager {
         ? [293.7, 220, 329.6]
         : name === "reach"
         ? [220, 164.8, 246.9] // low, slow tide-bells
+        : name === "glass"
+        ? [659.3, 987.8, 783.9] // high, bright glass-bells
         : [261.6, 196, 311.1];
     let idx = 0;
     const tick = () => {

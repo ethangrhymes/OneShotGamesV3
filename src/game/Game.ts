@@ -347,6 +347,11 @@ export class Game implements CombatHooks, CombatCallbacks {
     if (roomId === "summit" && this.run.getFlag("actBossDefeated") && !this.run.getFlag("actVictoryShown")) {
       this.pendingVictory = true;
     }
+    // Climbing into the Glass Country means the Saltblack Reach has been crossed.
+    if (roomId === "gc_threshold" && !this.save.data.completedReach) {
+      this.save.data.completedReach = true;
+      this.save.flush();
+    }
   }
 
   private markSolidProp(room: Room, it: Interactable) {
@@ -372,6 +377,8 @@ export class Game implements CombatHooks, CombatCallbacks {
       ? "region"
       : room.def.music === "reach"
       ? "reach"
+      : room.def.music === "glass"
+      ? "glass"
       : "explore";
     this.audio.setMusicScene(biome, !!room.def.isSafe, this.combatIntensity());
   }
@@ -824,6 +831,11 @@ export class Game implements CombatHooks, CombatCallbacks {
       this.world.current.unlockTide();
       this.toast("The shallow tide parts before you.", "#46b4c8");
     }
+    if (upId === "crystalShard") {
+      // wake every dormant mirror gate in the current room (and onward)
+      this.refreshDoors();
+      this.toast("Dormant mirrors wake. Step through the glass.", "#7fd6ff");
+    }
     this.sfx("pickup");
     this.persist();
     this.showModal({
@@ -845,7 +857,7 @@ export class Game implements CombatHooks, CombatCallbacks {
         (it.kind === "lever" && !it.used) ||
         (it.kind === "lore" && !it.used) ||
         it.kind === "checkpoint" ||
-        (it.kind === "prop" && it.uid === "deep_gate");
+        (it.kind === "prop" && it.uid === "sun_gate");
       if (!interactable) continue;
       const d = Math.hypot(p.x - it.x, p.y - it.y);
       if (d < bestD) {
@@ -892,7 +904,7 @@ export class Game implements CombatHooks, CombatCallbacks {
         this.useCheckpoint(it);
         break;
       case "prop":
-        if (it.uid === "deep_gate") this.regionComplete();
+        if (it.uid === "sun_gate") this.regionComplete();
         break;
     }
   }
@@ -925,9 +937,16 @@ export class Game implements CombatHooks, CombatCallbacks {
     it.used = true;
     if (it.setsFlag) this.run.setFlag(it.setsFlag, true);
     this.refreshDoors();
-    this.sfx("gate");
-    this.shake(6);
-    this.toast("A portcullis grinds open. Shortcut unlocked!", "#7fdca0");
+    // a crystal switch lights its gate with a chime; a winch grinds a portcullis
+    if (it.setsFlag && String(it.setsFlag).startsWith("crystal_")) {
+      this.sfx("crystal");
+      this.burst(it.x, it.y, "#bfe6ff", 14);
+      this.toast("The crystal lights. Its gate opens.", "#7fd6ff");
+    } else {
+      this.sfx("gate");
+      this.shake(6);
+      this.toast("A portcullis grinds open. Shortcut unlocked!", "#7fdca0");
+    }
     this.persist();
   }
 
@@ -1049,7 +1068,7 @@ export class Game implements CombatHooks, CombatCallbacks {
     this.transPhase = "out";
     this.fade = 0;
     this.state = "transition";
-    this.sfx("door");
+    this.sfx(dr.def.type === "mirror" ? "mirror" : "door");
   }
 
   private updateTransition(dt: number) {
@@ -1169,11 +1188,12 @@ export class Game implements CombatHooks, CombatCallbacks {
   }
   lastWinBest = { time: false, embers: false };
 
-  /** Phase 3 endpoint — reached at the sealed Drowned Toll-Gate. */
+  /** Region endpoint — reached at the Sun-Gate (Phase 4 finale). */
   private regionComplete() {
     this.save.data.completedMiniRegion = true;
     this.save.data.round2VisitedWorldGate = true;
     this.save.data.completedReach = true;
+    this.save.data.completedGlassCountry = true;
     this.save.flush();
     this.persist();
     this.audio.play("victory");
@@ -1187,6 +1207,14 @@ export class Game implements CombatHooks, CombatCallbacks {
   private objective(): string {
     const r = this.run;
     const region = this.world.regionOf(this.world.current.def.id);
+    if (region?.id === "glass_country") {
+      const id = this.world.current.def.id;
+      if (id === "gc_sungate") return "Examine the Sun-Gate.";
+      if (id === "gc_glasswarden") return "Break the Glass Warden.";
+      if (r.getFlag("glassWardenDefeated")) return "The Warden is broken. Pass east to the Sun-Gate.";
+      if (!r.crystalShard) return "Light crystals to open their gates. Seek the Crystal Shard in the Lensworks.";
+      return "Step through a waking mirror. Press on toward the Buried Sun.";
+    }
     if (region?.id === "saltblack_reach") {
       const id = this.world.current.def.id;
       if (id === "sr_drowngate") return "Examine the sealed Drowned Toll-Gate.";
@@ -1297,6 +1325,8 @@ export class Game implements CombatHooks, CombatCallbacks {
       cp_road_span: "the Broken Span",
       cp_reach_landing: "the Saltstair",
       cp_reach_lantern: "the Tideward Lantern",
+      cp_gc_threshold: "the Prism Lantern",
+      cp_gc_buriedsun: "the Sunward Lantern",
     };
     return map[this.run?.checkpointId ?? ""] ?? "the last Emberlight";
   }

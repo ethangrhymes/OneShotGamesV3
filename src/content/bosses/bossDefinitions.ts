@@ -63,6 +63,38 @@ export const bossDefinitions: Record<string, BossDef> = {
     ],
   },
 
+  // ----- Phase 4 miniboss: guards the Sun-Gate; drops the Glass Heart -----
+  glassWarden: {
+    id: "glassWarden",
+    name: "The Glass Warden",
+    title: "Keeper of the Buried Sun",
+    sprite: "boss",
+    hp: 44,
+    contactDamage: 2,
+    speed: 52,
+    radius: 12,
+    scale: 2.1,
+    fallbackColor: "#bfe6ff",
+    embers: 70,
+    isMiniboss: true,
+    summonRef: "glassMite",
+    introLine: "The Glass Warden turns to face you, and so do a hundred of its reflections.",
+    phaseLine: "Its surface cracks — light pours out, and the reflections begin to move on their own.",
+    defeatLine: "The Glass Warden shatters into falling light. A heart of cut glass rests where it stood.",
+    setsFlag: "glassWardenDefeated",
+    reward: { upgrade: "glassHeart", embers: 40 },
+    patterns: [
+      // prism volley: a slow fan of prismatic bolts
+      { id: "prismvolley", kind: "volley", telegraph: 0.7, recovery: 0.6, cooldown: 3.2, damage: 1 },
+      // mirror step: a sudden dash to the player's reflection-point
+      { id: "mirrorstep", kind: "charge", telegraph: 0.55, recovery: 0.5, cooldown: 3.0, damage: 2 },
+      // glass ring: an expanding pulse, telegraphed before it bites
+      { id: "glassring", kind: "shockwave", telegraph: 0.85, recovery: 0.7, cooldown: 4.4, damage: 2 },
+      // shard summon: calls Glass Mites once below half health
+      { id: "shardsummon", kind: "summon", telegraph: 1.0, recovery: 0.8, cooldown: 9.0, damage: 0 },
+    ],
+  },
+
   // ----- Final boss: The Hollow Warden -----
   warden: {
     id: "warden",

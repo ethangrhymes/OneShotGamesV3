@@ -33,6 +33,7 @@ function defaults(): SaveData {
     optionalEliteDefeated: false,
     audioModeVersion: 2,
     completedReach: false,
+    completedGlassCountry: false,
   };
 }
 

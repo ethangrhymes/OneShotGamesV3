@@ -57,6 +57,16 @@ node scripts/prepare-assets.mjs
 | Act I — The Sunken Keep | **Tiny Dungeon** | *(none)* | 12×11 (132) | hero, monsters, bosses, walls, doors, gates, chests, potions, braziers, scrolls, the seal ring |
 | The Rootward Road | **Tiny Town** | `tt_` | 12×11 (132) | grass, cobble roads, dying autumn trees, houses, fences, a causeway arch, signs, a well, a stall, the bell-token relic |
 | The Saltblack Reach | **Tiny Battle** | `tb_` | 18×11 (198) | deep & shallow water, coasts, plank bridges, fords, ruined keeps/bastions, drowned banners, a crossed-blade grave marker, a sand cairn, a beached warship |
+| The Glass Country | **Tiny Ski** | `sk_` | 12×11 (132) | bright white/ice terrain (glass ground), frost trees, lift pylons, gate arches, prism banners, a ski-lodge, and red-eyed wolves + a yeti as enemy sprites |
+
+**Terrain from Kenney, magic from the engine.** The Glass Country pairs a real Kenney
+pack (Tiny Ski terrain) with **procedural** light effects for everything magical —
+crystals, crystal gates, mirror portals, the Crystal Shard, the buried sun, shard
+floors. Crystalline light animates and glows far better as additive canvas art than as
+flat 16×16 tiles, and it sidesteps slicing the spritesheet-only packs (Generic Items,
+Rune Pack, Roguelike, etc. ship no per-tile `Tiles/` folder, only packed sheets). This
+"Kenney ground + engine-rendered magic" split is a good default whenever a region's
+identity is *light* rather than *stuff*.
 
 Indices were derived by inspecting each pack's tilemap. **Index = `row * columns + col`**
 (Tiny Dungeon/Town are 12-wide; Tiny Battle is 18-wide). When in doubt, render a
@@ -86,25 +96,36 @@ explain the seam?" Put that line in a `LoreEntry` near the visual shift (e.g.
 
 ## How a future pass should search the bundle creatively
 
-The next sealed segment is teased as **The Glass Country** (glass / crystal / portals /
-buried suns). Promising 16×16-ish families already in the bundle to scout:
+The next sealed segment is teased as **The Iron Orchard** (iron / orchard-rows / the
+curse "growing things again" — machines + foliage). Promising directions to scout:
 
-- **Tiny Ski** (snow/winter), **Roguelike** packs (dungeon/city/interior/characters —
-  rich, 16×16-with-1px-spacing sheets), **Micro Roguelike**, **Monochrome RPG**.
-- For "glass/magic/portal": **Generic Items**, **Rune Pack**, gems/crystals in the
-  roguelike sets, particle/effect packs for shimmer.
-- For sci-fi/machine ruins: **RTS Sci-fi**, **Simple Space**, **Robot Pack**.
+- **Important finding:** only the **Tiny** family (Tiny Dungeon/Town/Battle/Ski — all
+  now used) ships per-tile PNGs in a `Tiles/` folder, which is what `prepare-assets.mjs`
+  copies by index. Other promising packs (**Generic Items**, **Rune Pack**, **Roguelike**
+  sets, **Simple Space**, **RTS Sci-fi**, **Tower Defense**) ship **packed spritesheets
+  only** — no `Tiles/` folder — so they can't be copied tile-by-tile without slicing.
+- **Two ways forward for a non-Tiny look:** (a) render the region's signature elements
+  **procedurally** (as the Glass Country does for all its crystal/mirror/light), pairing
+  them with whatever Tiny terrain fits; or (b) pre-slice a *small* set of tiles from a
+  packed sheet (PIL/canvas) into individual PNGs committed under `selected/tiles/`. Keep
+  the deployed asset count modest either way.
+- For the Iron Orchard specifically: Tiny Town has fences/farm-ish props, Tiny Battle
+  has machinery-adjacent tiles, and procedural rust/vine/gear-light could carry the rest.
 
 Workflow for adding a pack:
 
 1. Confirm it's 16×16 individual PNGs (or normalize the draw size). Note its column
    count for the `row*cols+col` math.
 2. Pick a *small* curated set; map them to a new `xx_`-prefixed selection object in
-   `prepare-assets.mjs` (copy the `battleSelection` block as a template).
+   `prepare-assets.mjs` (copy the `battleSelection` / `skiSelection` block as a template).
 3. Add `floor`/`wall` style cases in `Renderer.floorKey`/`wallKey` and any new
-   `PropKind`s in `Renderer.propKey` (+ `types.ts`), each with a fallback.
+   `PropKind`s in `Renderer.propKey` (+ `types.ts`), each with a fallback. For
+   *light/energy* elements, prefer a procedural draw (see `drawCrystal`, `drawMirrorGate`,
+   `drawSunstone`, `drawCrystalShard` in `Renderer.ts`).
 4. Re-run the prepare script, give the region's rooms `theme` + the new styles, and
-   write a lore line justifying the look. Keep the deployed asset count reasonable.
+   write a lore line justifying the look. **Always ground-check copied indices** — render
+   a labelled contact sheet of the `tile_XXXX.png` files; both Tiny Battle and Tiny Ski
+   had an off-by-a-few index (a digit tile) caught exactly this way.
 
 ---
 

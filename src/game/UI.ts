@@ -485,7 +485,7 @@ export class UI {
     this.text(stats.join("    "), this.W / 2, this.H - 56 * s, C.dim, "center");
 
     this.font(11, "normal");
-    this.text("Art: Kenney Tiny Dungeon · Tiny Town · Tiny Battle · Audio: Kenney + synth (CC0)", this.W / 2, this.H - 34 * s, C.dim, "center");
+    this.text("Art: Kenney Tiny Dungeon · Town · Battle · Ski · Audio: Kenney + synth (CC0)", this.W / 2, this.H - 34 * s, C.dim, "center");
     this.text("WASD/Arrows move · Space attack · Shift roll · E interact", this.W / 2, this.H - 18 * s, C.dim, "center");
   }
 
@@ -522,9 +522,10 @@ export class UI {
       "  Two Warden Seals open the sealed door to the boss.",
       "  Fall and you respawn at the last rest; your dropped",
       "  embers wait where you died — reclaim them.",
-      "  Beyond the Keep: the Rootward Road, then the drowned",
-      "  Saltblack Reach. Find the Tide Relic to ford the",
-      "  shallow tide; cross deep water only on bridges.",
+      "  Beyond the Keep: the Rootward Road, the drowned",
+      "  Saltblack Reach (Tide Relic fords shallows), and the",
+      "  Glass Country — light crystals to open their gates,",
+      "  then take the Crystal Shard to wake mirror gates.",
       "  Easy mode = a forgiving QA/practice scale.",
       "  (Dev: F2 collision · F3 state · F4 warp checkpoints.)",
     ];
@@ -675,16 +676,16 @@ export class UI {
     const s = this.uiScale;
     this.dimScreen(0.64);
     ctx.save();
-    ctx.shadowColor = "rgba(70,180,200,0.6)";
+    ctx.shadowColor = "rgba(127,214,255,0.6)";
     ctx.shadowBlur = 22 * s;
     this.serif(33);
-    this.text("The Saltblack Reach", this.W / 2, this.H * 0.14, "#46b4c8", "center");
+    this.text("The Glass Country", this.W / 2, this.H * 0.14, "#7fd6ff", "center");
     ctx.restore();
     this.serif(19);
     this.text("The Road Goes On", this.W / 2, this.H * 0.14 + 28 * s, C.ember, "center");
     this.font(13.5, "normal", "Georgia, serif");
     const tease =
-      "The Drowned Gear is broken; the toll is paid. Past the sealed gate the road climbs into a country of glass and buried suns, where the curse wears a brighter face. Seals are made to be broken.";
+      "The Glass Warden is broken; the buried sun is yours to pass. Beyond the Sun-Gate: a country of iron and orchard-rows, where the curse has learned to grow things again. Four wounds walked. The world has more.";
     let ty = this.H * 0.14 + 52 * s;
     for (const ln of this.wrap(tease, Math.min(this.W * 0.82, 520 * s))) {
       this.text(ln, this.W / 2, ty, C.dim, "center");
@@ -695,8 +696,9 @@ export class UI {
     const journey: [string, boolean][] = [
       ["Emberfall Keep — broken", true],
       ["The Rootward Road — walked", true],
-      ["The Saltblack Reach — drowned & crossed", true],
-      ["The Glass Country — sealed", false],
+      ["The Saltblack Reach — crossed", true],
+      ["The Glass Country — refracted & crossed", true],
+      ["The Iron Orchard — sealed", false],
     ];
     const jw = Math.min(this.W * 0.82, 440 * s);
     const jx = this.W / 2 - jw / 2;
@@ -714,8 +716,8 @@ export class UI {
       ["Total time", formatTime(run.stats.elapsedMs), false],
       ["Rooms explored", `${run.stats.roomsVisited.size}`, false],
       ["Enemies defeated", `${run.stats.enemiesDefeated}`, false],
-      ["Bell Tokens", `${run.bellTokens} / 5`, run.bellTokens >= 5],
-      ["Tide forded", run.tideUnlocked ? "yes" : "no", run.tideUnlocked],
+      ["Bell Tokens", `${run.bellTokens} / 7`, run.bellTokens >= 7],
+      ["Mirrors woken", run.upgrades.has("crystalShard") ? "yes" : "no", run.upgrades.has("crystalShard")],
       ["Lore found", `${run.stats.loreFound}`, false],
     ];
     const w = Math.min(this.W * 0.82, 440 * s);

@@ -218,6 +218,41 @@ const battleSelection = {
   "tb_lock.png": 193, // padlock — sealed deep-gate icon
 };
 
+// ----- Tile selection — pack 4: Tiny Ski ------------------------------------
+// Phase 4 region "The Glass Country": a bright, refracted crystal land past the
+// drowned toll-gate. Tiny Ski is a 16x16 pack (same scale, individual per-tile
+// PNGs) whose white/ice terrain, frost trees, gate arches, lift pylons, bright
+// banners and red-eyed wolves read as a frozen-glass country once the curse
+// "wears a brighter face". Keys are prefixed "sk_". The crystals / mirror-gates /
+// portals / lens-beams / buried-sun are drawn procedurally (additive light) on
+// top — Kenney terrain + engine-rendered magic. Tiny Ski is a 12-column grid.
+const TINY_SKI = (idx) =>
+  bundle
+    ? path.join(bundle, "2D assets", "Tiny Ski", "Tiles", `tile_${String(idx).padStart(4, "0")}.png`)
+    : null;
+
+const skiSelection = {
+  // --- bright terrain (the glass ground) ---
+  "sk_snow.png": 0,
+  "sk_snow_b.png": 1,
+  "sk_snow_c.png": 2,
+  "sk_snow_track.png": 13,
+  "sk_ice.png": 49, // smoother pale-blue glass-ice
+  "sk_ice_b.png": 61,
+  // --- props ---
+  "sk_tree.png": 6, // frost pine
+  "sk_tree_bare.png": 7,
+  "sk_pylon.png": 54, // lift pylon → crystal pylon
+  "sk_arch.png": 42, // gate arch → glass-gate frame
+  "sk_flag_red.png": 8,
+  "sk_flag_blue.png": 9,
+  "sk_banner.png": 22, // bright race banner → prism banner
+  "sk_lodge.png": 67, // station building → glass chapel
+  // --- enemy sprites ---
+  "sk_wolf.png": 78, // grey, red-eyed → mirror hound (echo)
+  "sk_yeti.png": 81, // white → glass golem
+};
+
 // ----- Audio selection -------------------------------------------------------
 // destFile -> ordered list of candidate source relative paths (under <bundle>).
 // First existing candidate wins; if none exist the game uses its Web Audio synth.
@@ -264,6 +299,13 @@ const audioSelection = {
     "Audio/Music Loops/Loops/Sad Descent.ogg",
     "Audio/Music Loops/Retro/Retro Mystic.ogg",
   ],
+  // bright, uncanny shimmer for the Phase 4 region "The Glass Country"
+  "music_glass.ogg": [
+    "Audio/Music Loops/Loops/Space Cadet.ogg",
+    "Audio/Music Loops/Loops/Time Driving.ogg",
+    "Audio/Music Loops/Loops/Mishief Stroll.ogg",
+    "Audio/Music Loops/Retro/Retro Mystic.ogg",
+  ],
 };
 
 // ----- run -------------------------------------------------------------------
@@ -285,8 +327,10 @@ const manifest = {
     "16x16 top-down, CC0. Act I (The Sunken Keep) = Kenney Tiny Dungeon. " +
     "Round 2 region (The Rootward Road) = Kenney Tiny Town (tt_* keys). " +
     "Phase 3 region (The Saltblack Reach) = Kenney Tiny Battle (tb_* keys) — " +
-    "a drowned war-coast. Three cohesive same-scale packs used as distinct " +
-    "cursed regions stitched together by the spreading curse.",
+    "a drowned war-coast. Phase 4 region (The Glass Country) = Kenney Tiny Ski " +
+    "(sk_* keys) for bright glass/ice terrain, with crystals/mirrors/portals/" +
+    "lens-beams/buried-sun drawn procedurally on top. Four cohesive same-scale " +
+    "packs used as distinct cursed regions stitched together by the spreading curse.",
   bundleFound: !!bundle,
   bundlePath: bundle ? path.basename(bundle) : null,
   tileSize: 16,
@@ -347,6 +391,21 @@ if (!bundle) {
       fs.copyFileSync(src, path.join(tilesOut, dest));
       manifest.tiles[dest] = {
         pack: "2D assets/Tiny Battle",
+        tile: `tile_${String(idx).padStart(4, "0")}.png`,
+        index: idx,
+      };
+      copiedTiles++;
+    } else {
+      manifest.missing.push({ category: "tile", dest, wantedIndex: idx });
+    }
+  }
+
+  for (const [dest, idx] of Object.entries(skiSelection)) {
+    const src = TINY_SKI(idx);
+    if (src && fs.existsSync(src)) {
+      fs.copyFileSync(src, path.join(tilesOut, dest));
+      manifest.tiles[dest] = {
+        pack: "2D assets/Tiny Ski",
         tile: `tile_${String(idx).padStart(4, "0")}.png`,
         index: idx,
       };

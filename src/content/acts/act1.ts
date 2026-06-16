@@ -22,6 +22,7 @@ import { itemDefinitions } from "../items/itemDefinitions";
 import { loreEntries } from "../lore/loreEntries";
 import { rootwardRoad } from "../regions/rootwardRoad";
 import { saltblackReach } from "../regions/saltblackReach";
+import { glassCountry } from "../regions/glassCountry";
 
 const rooms: RoomDef[] = [
   // ---------------------------------------------------------------- gate
@@ -674,6 +675,8 @@ export const act1: WorldAct = {
     rootwardRoad,
     // Phase 3 expansion region — reached east through the Rootward causeway.
     saltblackReach,
+    // Phase 4 expansion region — reached east through the Drowned Toll-Gate.
+    glassCountry,
   ],
 };
 

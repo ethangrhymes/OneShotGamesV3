@@ -1,8 +1,8 @@
 # Emberfall Keep
 
 A complete, mobile-friendly **top-down Zelda-like / light Soulslike** built with
-TypeScript + Vite + HTML5 Canvas. Three cursed, interconnected regions, each its own
-cohesive Kenney 16×16 pack — stitched into one road by a spreading curse:
+TypeScript + Vite + HTML5 Canvas. Four cursed, interconnected regions (45 rooms),
+each its own cohesive Kenney 16×16 pack — stitched into one road by a spreading curse:
 
 1. **Act I — The Sunken Keep** (Kenney *Tiny Dungeon*): a 16-room dungeon with
    Emberlight checkpoints, a recoverable death drop, a boss gate sealed behind
@@ -12,8 +12,12 @@ cohesive Kenney 16×16 pack — stitched into one road by a spreading curse:
    Champion, a broken span, and the once-sealed causeway.
 3. **The Saltblack Reach** (Kenney *Tiny Battle*): a 10-area **drowned war-coast** past
    the causeway, where an ancient war sank mid-stride. Ford the shallow **tide** with
-   the **Tide Relic**, cross deep water on bridges, and break **The Drowned Gear** at
-   the toll-gate — beyond it, a country of glass and buried suns waits, sealed.
+   the **Tide Relic**, cross deep water on bridges, and break **The Drowned Gear**.
+4. **The Glass Country** (Kenney *Tiny Ski* + procedural light): a 12-area **bright,
+   refracted crystal land** past the toll-gate. **Light crystals** to open their gates,
+   take the **Crystal Shard** to wake **mirror gates** (teleport doors), dodge the
+   **shard floor**, and break **The Glass Warden** at the Sun-Gate — beyond it, a
+   country of iron and orchard-rows waits, sealed.
 
 > The light that kept the Keep has gone hollow. Break the curse, then walk the road
 > beyond — the Keep was only the first opened wound in a much larger cursed world.
@@ -21,6 +25,30 @@ cohesive Kenney 16×16 pack — stitched into one road by a spreading curse:
 The engine is fully data-driven, so future acts/regions/bosses are added as content
 files, not engine rewrites (see [`CONTENT_GUIDE.md`](CONTENT_GUIDE.md)). For how the
 Kenney bundle is mined and mixed across regions, see [`ASSET_GUIDE.md`](ASSET_GUIDE.md).
+
+## Phase 4 expansion — The Glass Country (what's new)
+
+- **A whole new region** past the Drowned Toll-Gate: **The Glass Country**, a bright
+  refracted crystal land of **12 areas** built from a fourth Kenney pack, **Tiny Ski**
+  (`sk_*` — snow/ice as glass ground), with crystals, mirror portals, a buried sun and
+  shard floors drawn **procedurally** (additive light) on top. The toll-gate that
+  ended Phase 3 now opens east onto it.
+- **A new mechanic — Crystal switches + Mirror gates.** Two new door types: a
+  **`crystalGate`** opens when its colour-matched **crystal switch** is lit (the RED
+  gate teaches it on the critical path; a GOLD gate guards loot); a **`mirror`** gate
+  is a teleport door that wakes only once the **Crystal Shard** is held — one gates the
+  run forward to the Buried Sun, one is a shortcut back to the hub, one hides a secret
+  reflection room. Plus a new **shard-floor** hazard (cracked glass that bites on a
+  pulse).
+- **Two new permanent upgrades** — the **Crystal Shard** (wakes mirror gates) and the
+  **Glass Heart** (+1 max heart, dropped by the new miniboss).
+- **A new miniboss — The Glass Warden** (prism volley / mirror-step charge / glass-ring
+  pulse / summons Glass Mites below half), plus **4 new enemies**: Glass Mite (swift
+  swarmer), Prism Caster (turret), Echo Hound (charger), Shard Sentinel (gate-guard tank).
+- **A bright "glass" ambience**, crystal-chime + mirror-whoosh stings, a **5-region
+  journey ledger** that teases the next sealed segment (the Iron Orchard), new objective
+  hints, and a validator extended to prove the Crystal Shard is never gated behind a
+  mirror (no soft-lock).
 
 ## Phase 3 expansion — The Saltblack Reach (what's new)
 
@@ -186,10 +214,15 @@ or combat readability:
 - **Tiny Battle** → The Saltblack Reach (`tb_*` keys): deep & shallow water, coasts,
   plank bridges, fords, ruined keeps/bastions, drowned banners, a crossed-blade
   grave marker, a sand cairn, and a beached warship hull.
+- **Tiny Ski** → The Glass Country (`sk_*` keys): bright white/ice terrain (glass
+  ground), frost trees, lift pylons, gate arches, prism banners, and red-eyed
+  wolves + a yeti as enemy sprites. The crystals, crystal gates, mirror portals, the
+  Crystal Shard, the buried sun and shard floors are drawn **procedurally** (additive
+  light) on top — Kenney terrain, engine-rendered magic.
 
-Mixing is deliberate, not random: the visual shift is the curse spreading from the
-Keep onto the bell-road and then drowning the war-coast beyond. The art-prep script
-keeps all three packs documented in the manifest with their source pack + tile index.
+Mixing is deliberate, not random: the curse spreads from the Keep onto the bell-road,
+drowns the war-coast, then *refracts* the glass country beyond. The art-prep script
+keeps all four packs documented in the manifest with their source pack + tile index.
 See [`ASSET_GUIDE.md`](ASSET_GUIDE.md) for how packs are chosen, namespaced, and
 justified in-fiction.
 
@@ -252,7 +285,18 @@ and synth audio.
   (found ford-free at the Tide Shrine) lets you wade shallow fords to optional loot.
 - 4 new enemies, the **Drowned Gear** miniboss (drops the **Brine Heart**), a
   tide-gate shortcut winch, two optional ford-branches, 8 lore fragments, and a
-  journey-progress endpoint that teases the sealed **Glass Country** beyond.
+  journey-progress endpoint that teases the **Glass Country** beyond.
+
+**The Glass Country** (Phase 4)
+
+- 12 areas (White Threshold, Prism Road, Sundial Court, Lensworks, Shard Market,
+  Mirrorfield, Hall of Refraction, Hidden Reflection, Splinter Vault, Buried Sun,
+  Glass Warden's Chapel, Sun-Gate) with two checkpoints and a teal minimap group.
+- **Crystal switches + crystal gates** (taught on the critical path), **mirror gates**
+  woken by the **Crystal Shard**, a secret reflection room, a **shard-floor** hazard,
+  4 new enemies, **The Glass Warden** miniboss (drops the **Glass Heart**), 9 lore
+  fragments, a bright glass ambience, and the Sun-Gate endpoint teasing the **Iron
+  Orchard**.
 
 ---
 
@@ -265,10 +309,11 @@ Everything is `localStorage`, no accounts/servers/cookies:
 - An in-progress **run snapshot** (resources incl. Bell Tokens, opened chests,
   world flags, discovered lore, current checkpoint) so closing the tab resumes from
   your last rest via **Continue Descent**.
-- Round 2 / Phase 3 hooks (`unlockedRegions`, `discoveredRegions`,
-  `completedMiniRegion`, `optionalEliteDefeated`, `completedReach`, and the
-  `tideRelic` / `brineHeart` upgrades) auto-initialize on older saves. If a saved
-  checkpoint room no longer exists, the game falls back to the nearest valid start.
+- Expansion hooks (`unlockedRegions`, `discoveredRegions`, `completedMiniRegion`,
+  `optionalEliteDefeated`, `completedReach`, `completedGlassCountry`, the
+  `tideRelic` / `brineHeart` / `crystalShard` / `glassHeart` upgrades, and run flags
+  like `crystal_red_lit` / `glassWardenDefeated`) auto-initialize on older saves. If a
+  saved checkpoint room no longer exists, the game falls back to the nearest valid start.
 
 ---
 
@@ -289,6 +334,7 @@ src/
     acts/act1.ts
     regions/rootwardRoad.ts
     regions/saltblackReach.ts
+    regions/glassCountry.ts
     enemies/enemyDefinitions.ts
     bosses/bossDefinitions.ts
     items/itemDefinitions.ts
@@ -303,7 +349,7 @@ enemies, bosses, items, lore, and asset mappings.
 ## Credits
 
 - Art & audio: **Kenney** (kenney.nl) — *Tiny Dungeon*, *Tiny Town*, *Tiny Battle*,
-  and RPG/Impact/Interface/Music packs, all **CC0**. Crediting is voluntary and
-  gladly given.
+  *Tiny Ski*, and RPG/Impact/Interface/Music packs, all **CC0**. Crediting is
+  voluntary and gladly given.
 - Engine, design, content, and the procedurally-drawn HUD icons were built for
   this project in TypeScript + Vite + Canvas.

@@ -35,6 +35,8 @@ export type UpgradeId =
   | "emberHeart" // +1 max heart (Round 2)
   | "tideRelic" // Phase 3: ford shallow tide-water
   | "brineHeart" // Phase 3: +1 max heart (Drowned Gear reward)
+  | "crystalShard" // Phase 4: wake dormant mirror gates
+  | "glassHeart" // Phase 4: +1 max heart (Glass Warden reward)
   | (string & {});
 
 // ---------------------------------------------------------------------------
@@ -47,7 +49,9 @@ export type ConnectionType =
   | "bossGate" // requires N seals / a flag
   | "shortcut" // sealed until a world flag is set (one-time unlock)
   | "oneWay" // passable in a single direction
-  | "requiresItem";
+  | "requiresItem"
+  | "crystalGate" // Phase 4: opens when its crystal `flag` is lit (a crystal switch)
+  | "mirror"; // Phase 4: teleport door, passable only with the Crystal Shard
 
 /**
  * A door placed on a room edge. Doors are linked in pairs by `to`/`toDoorId`,
@@ -115,7 +119,12 @@ export type PropKind =
   | "flag" // drowned banner
   | "tower" // ruined keep / watchtower
   | "dune" // sand cairn
-  | "warcross"; // crossed-blade grave marker
+  | "warcross" // crossed-blade grave marker
+  // glass-country (Tiny Ski + procedural) props
+  | "crystal" // a still (decorative) glowing crystal
+  | "sunstone" // a buried-sun shard (large glow)
+  | "pylon" // a crystal pylon
+  | "shrine"; // a glass chapel / station
 
 export interface SpawnDef {
   kind: SpawnKind;
@@ -154,10 +163,10 @@ export interface ChestContents {
 // Rooms / Regions / Acts
 // ---------------------------------------------------------------------------
 
-export type FloorStyle = "stone" | "dirt" | "tile" | "grass" | "path" | "saltgrass";
-export type WallStyle = "brick" | "stone" | "townstone" | "redbrick" | "wood" | "hedge";
-export type RoomTheme = "dungeon" | "outdoor";
-export type MusicTrack = "explore" | "boss" | "region" | "reach";
+export type FloorStyle = "stone" | "dirt" | "tile" | "grass" | "path" | "saltgrass" | "glass";
+export type WallStyle = "brick" | "stone" | "townstone" | "redbrick" | "wood" | "hedge" | "glass";
+export type RoomTheme = "dungeon" | "outdoor" | "glass";
+export type MusicTrack = "explore" | "boss" | "region" | "reach" | "glass";
 
 export interface RoomDef {
   id: string;
@@ -288,6 +297,8 @@ export interface BossDef {
   reward?: ChestContents;
   /** flag set when defeated. */
   setsFlag?: GameFlag;
+  /** enemy id summoned by a "summon" pattern (default "wraith"). */
+  summonRef?: string;
 }
 
 export type ItemKind = "key" | "seal" | "upgrade" | "consumable";
@@ -338,4 +349,6 @@ export interface SaveData {
   audioModeVersion: number;
   // ---- Phase 3 expansion hooks (older saves auto-initialize these) ----
   completedReach: boolean; // reached the Drowned Toll-Gate (Phase 3 endpoint)
+  // ---- Phase 4 expansion hooks (older saves auto-initialize these) ----
+  completedGlassCountry: boolean; // reached the Sun-Gate (Phase 4 endpoint)
 }

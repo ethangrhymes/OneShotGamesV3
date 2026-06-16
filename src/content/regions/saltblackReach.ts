@@ -399,10 +399,14 @@ export const saltblackReach: RegionDef = {
         "#...........#",
         "#############",
       ],
-      doors: [{ id: "sr_drowngate_w", tx: 0, ty: 4, edge: "w", to: "sr_tollworks", toDoorId: "sr_tollworks_e", type: "open" }],
+      doors: [
+        { id: "sr_drowngate_w", tx: 0, ty: 4, edge: "w", to: "sr_tollworks", toDoorId: "sr_tollworks_e", type: "open" },
+        // Phase 4: the toll-gate now opens east, climbing into the Glass Country.
+        { id: "sr_drowngate_e", tx: 12, ty: 4, edge: "e", to: "gc_threshold", toDoorId: "gc_threshold_w", type: "open" },
+      ],
       spawns: [
-        // The sealed deep-gate — interacting with it completes Phase 3 and teases the next world segment.
-        { kind: "prop", tx: 6, ty: 4, prop: "arch", solid: false, uid: "deep_gate" },
+        // The deep-gate — its seal is broken; it now frames the way onward (decorative).
+        { kind: "prop", tx: 6, ty: 3, prop: "arch", solid: false, uid: "world_gate5" },
         { kind: "lore", tx: 3, ty: 6, ref: "l_drowngate", prop: "sign" },
         { kind: "prop", tx: 3, ty: 2, prop: "tower" },
         { kind: "prop", tx: 9, ty: 2, prop: "tower" },

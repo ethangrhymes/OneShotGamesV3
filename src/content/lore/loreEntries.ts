@@ -124,4 +124,51 @@ export const loreEntries: Record<string, LoreEntry> = {
     title: "At the Drowned Toll-Gate",
     text: "“Past this gate the road climbs again, into a country of glass and buried suns where the curse wears a brighter face. The Gear is broken; the toll is paid. The gate is only sealed — and seals, you have learned, are made to be broken. — The road goes on.”",
   },
+
+  // ---- Phase 4: The Glass Country (a bright, refracted crystal land) ----
+  l_gc_threshold: {
+    id: "l_gc_threshold",
+    title: "At the White Threshold",
+    text: "“Here the curse stops rotting the world and starts refracting it. Walk soft: the light remembers every step, and shows it back to you when you least expect. This is the Glass Country. It is brighter than the dark. It is not kinder.”",
+  },
+  l_gc_prismroad: {
+    id: "l_gc_prismroad",
+    title: "On the Prism Road",
+    text: "“Strike a sleeping crystal and it wakes, and what it wakes, it opens. The old roadwrights cut these gates so no single traveler could pass alone. Light the crystal of a colour, and its gate of the same colour will let you through.”",
+  },
+  l_gc_sundial: {
+    id: "l_gc_sundial",
+    title: "At the Sundial Court",
+    text: "“The sundial here tells no hour. It tells direction — which reflection is true, and which is only the country dreaming of you. Light the gold crystal to open the gold way. Trust the gates. Do not trust the mirrors. Not yet.”",
+  },
+  l_gc_shard: {
+    id: "l_gc_shard",
+    title: "In the Lensworks",
+    text: "“A bright fragment of the buried sun, cold enough to hold. They called it a Crystal Shard and used it to wake the mirror gates — to step from one place into a place that only looks adjacent. Take it. The country will fold for you now.”",
+  },
+  l_gc_mirror: {
+    id: "l_gc_mirror",
+    title: "At the Mirrorfield",
+    text: "“A mirror gate is a door that lies about where it leads. With the Shard in hand the dormant ones wake, and a step into the glass becomes a step out of it, somewhere you did not walk to. Some mirrors are shortcuts home. Some hide rooms that were never built — only reflected.”",
+  },
+  l_gc_refraction: {
+    id: "l_gc_refraction",
+    title: "In the Hall of Refraction",
+    text: "“The way forward is through the glass; there is no other. The Sentinels guard the true mirror and ignore the false ones, for they cannot tell the difference either. Neither could the cartographers. That is why there are no maps of this place that agree.”",
+  },
+  l_gc_buriedsun: {
+    id: "l_gc_buriedsun",
+    title: "Before the Buried Sun",
+    text: "“They buried a sun here, to keep the country lit when the true sun forgot it. It is still burning, somewhere below the glass. The Warden keeps it. The Warden has kept it so long it has forgotten it was ever a person, and remembers only that it is a mirror.”",
+  },
+  l_glass_warden: {
+    id: "l_glass_warden",
+    title: "The Glass Warden",
+    text: "“It will wear your shape, and your reflection's shape, and the shape of every traveler it has kept. Break it and the buried sun is yours to pass. Break it gently, if you can — somewhere under all that glass is a watcher who only ever wanted to be seen.”",
+  },
+  l_gc_sungate: {
+    id: "l_gc_sungate",
+    title: "At the Sun-Gate",
+    text: "“The buried sun lights the gate, and the gate opens onward — to a place of iron and orchard-rows, where the curse has learned to grow things again. Four wounds walked, traveler. The world has more. But you have learned the shape of the road: it always goes on, and so do you. — The road goes on.”",
+  },
 };
